@@ -1,0 +1,11 @@
+[package]
+name = "bevy-builder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.11.0" }
+bevy-trait-query = { version = "0.3.0" }
+common = { git = "https://github.com/empathic-ai/common.git" }
+serde = { version = "1.0.149", features = ["derive"] }
+lazy_static = "1.4.0"
