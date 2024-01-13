@@ -3784,7 +3784,7 @@ dependencies = [
 [[package]]
 name = "time"
 version = "0.3.21"
-source = "git+https://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@github.com/empathic-ai/time.git#044a720b435ee89307245e4c7901b3a11c29ca93"
+source = "git+https://github.com/empathic-ai/time.git#044a720b435ee89307245e4c7901b3a11c29ca93"
 dependencies = [
  "itoa",
  "js-sys",
@@ -3796,12 +3796,12 @@ dependencies = [
 [[package]]
 name = "time-core"
 version = "0.1.1"
-source = "git+https://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@github.com/empathic-ai/time.git#044a720b435ee89307245e4c7901b3a11c29ca93"
+source = "git+https://github.com/empathic-ai/time.git#044a720b435ee89307245e4c7901b3a11c29ca93"
 
 [[package]]
 name = "time-macros"
 version = "0.2.9"
-source = "git+https://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@github.com/empathic-ai/time.git#044a720b435ee89307245e4c7901b3a11c29ca93"
+source = "git+https://github.com/empathic-ai/time.git#044a720b435ee89307245e4c7901b3a11c29ca93"
 dependencies = [
  "time-core",
 ]
