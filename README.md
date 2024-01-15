@@ -2,6 +2,8 @@
 
 Seamlessly create complex configurations of entities (scenes, UI layouts, etc.) using a straightforward builder pattern.
 
+# Instructions
+
 To add to your project, simply run:
 
 ```
