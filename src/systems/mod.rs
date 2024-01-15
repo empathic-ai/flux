@@ -1,45 +1,19 @@
 use crate::*;
 
+use bevy::ecs::archetype::Archetypes;
+use bevy::ecs::component::ComponentId;
+use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use bevy::reflect::TypeInfo::Struct;
+use bevy::reflect::{TypeRegistry, ReflectMut, ReflectRef};
+use bevy::utils::HashMap;
 use bevy_trait_query::All;
 
-use serde::{Deserialize, Serialize, de};
+use serde::{Deserialize, Serialize};
 use std::{any::Any, sync::Arc};
 use std::any::TypeId;
-
-use lazy_static::lazy_static;
 use common::prelude::*;
 
-lazy_static! {
-    pub static ref BLUE: Color = {
-        Color::hex("0097F2").unwrap()
-    };
-    pub static ref ORANGE: Color = {
-        Color::hex("ff8400").unwrap()
-    };
-    pub static ref GREEN: Color = {
-        Color::hex("1db951").unwrap()
-    };
-}
-
-pub type SubmitFunc = CommandFuncWithArgs2<HashMap<String, String>>;
-
-pub fn GetSecondaryBrightness(color: Color) -> f32 {
-    if color == Color::WHITE {
-        0.2
-    } else {
-        1.0
-    }
-}
-
-pub fn GetSecondaryColor(color: Color) -> Color {
-    if color == Color::WHITE {
-        Color::BLACK
-    } else {
-        Color::WHITE
-    }
-}
 
 #[derive(Debug, Clone, Default, Component, Reflect)]
 pub struct UserMessage {
@@ -63,17 +37,6 @@ impl Bindable for UsageView {
     }
 }
 
-#[derive(Debug, Clone, Default, Component)]
-pub struct Slider {
-    pub fill_entity: Option<Entity>,
-    pub percent: f32
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CustomMessage {
-    pub id: Uuid,
-    pub msg: String,
-}
 
 #[derive(Debug, Clone, Component)]
 pub struct AutoBinding {
@@ -127,37 +90,6 @@ pub struct SignUpEvent {
     pub username: String,
     pub email: String,
     pub password: String
-}
-
-pub trait EntityCloneFn: Fn(&mut Commands) -> Entity + Send + Sync {
-    fn clone_box(&self) -> Box<dyn EntityCloneFn + Send + Sync>;
-}
-
-impl<T> EntityCloneFn for T
-where
-    T: Fn(&mut Commands) -> Entity + Send + Sync + Clone + 'static,
-{
-    fn clone_box(&self) -> Box<dyn EntityCloneFn + Send + Sync> {
-        Box::new(self.clone())
-    }
-}
-
-pub struct CreateEntityFunc(Arc<dyn EntityCloneFn + Send + Sync>);
-
-impl CreateEntityFunc {
-    pub fn new(func: impl EntityCloneFn + Send + Sync + 'static) -> Self {
-        CreateEntityFunc(Arc::new(func))
-    }
-
-    pub fn call(&self, cmd: &mut Commands) -> Entity {
-        (self.0)(cmd)
-    }
-}
-
-impl Clone for CreateEntityFunc {
-    fn clone(&self) -> Self {
-        CreateEntityFunc(self.0.clone())
-    }
 }
 
 #[derive(Clone, Component)]
@@ -232,39 +164,6 @@ pub struct UpdateChatEvent(pub Entity);
 
 #[derive(Event)]
 pub struct ClickEvent(pub Entity);
-
-#[derive(Component, Clone, Default, Reflect, Serialize, Deserialize)]
-pub struct ConversationPreview {
-    pub conversation_id: Uuid,
-    pub image: Vec<String>
-}
-
-#[cfg(all(target_arch = "wasm32"))]
-pub fn update_route(
-    mut query: bevy::prelude::Query<(Entity, &mut Router)>, mut ev_writer: EventWriter<RouteChange>) {
-
-
-    let (tx, rx) = &mut *ROUTE_CHANNEL.lock().unwrap();
-
-    match rx.try_recv() {
-        Ok(ev) => {
-            for (entity, mut router) in query.iter_mut() {
-                //console::log!(format!("UPDATING ROUTER"));
-                router.path = ev.path.clone();
-                router.params = ev.params.clone();
-            }
-
-            let new_route = ev.path.join("/");
-            if get_route().trim_start_matches('/') != new_route || get_route_params() != ev.params {
-                crate::prelude::set_route(&new_route);
-            }
-
-            ev_writer.send(ev);
-        }
-        Err(_) => {
-        }
-    }
-}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn update_route() {
@@ -452,96 +351,6 @@ impl<'w, 's> CommandBuilder<'w, 's> {
     }
 }
 
-pub trait ChildTrait<'w, 's, 'a> {
-    fn child(&'a mut self)  -> EntityBuilder<'w, 's, 'a>;
-}
-
-impl<'w, 's, 'a> ChildTrait<'w, 's, 'a> for ChildBuilder<'w, 's, '_> {
-    fn child(&'a mut self) -> EntityBuilder<'w, 's, 'a> {
-        let entity_commands: EntityCommands<'w, 's, '_> = self.spawn(Control {
-            ..default()
-        });
-        
-        // Your implementation here
-        EntityBuilder::new(entity_commands)
-    }
-}
-
-pub trait EntityCommandsChildTrait<'w, 's, 'a> {
-    fn builder(&'a mut self)  -> EntityBuilder<'w, 's, 'a>;
-    fn child(&'a mut self)  -> EntityBuilder<'w, 's, 'a>;
-}
-
-impl<'w, 's, 'a> EntityCommandsChildTrait<'w, 's, 'a> for EntityCommands<'w, 's, '_> {
-    fn builder(&'a mut self) -> EntityBuilder<'w, 's, 'a> {
-        // Your implementation here
-        let id = self.id();
-        let commands: EntityCommands<'w, 's, '_> = self.commands().entity(id);
-        EntityBuilder::new(commands)
-    }
-    fn child(&'a mut self) -> EntityBuilder<'w, 's, 'a> {
-        // Your implementation here
-        let id = self.id();
-        let mut child_id: Option<Entity> = None;
-        self.with_children(
-            |parent| {
-                child_id = Some(parent.child().id());
-            }
-        );
-        let commands = self.commands().entity(child_id.unwrap());
-        EntityBuilder::new(commands)
-    }
-}
-
-pub trait CommandsChildTrait<'w, 's, 'a> {
-    fn child(&'a mut self)  -> EntityBuilder<'w, 's, 'a>;
-}
-
-impl<'w, 's, 'a> CommandsChildTrait<'w, 's, 'a> for Commands<'w, 's> {
-    fn child(&'a mut self) -> EntityBuilder<'w, 's, 'a> {
-        let commands: EntityCommands<'w, 's, '_> = self.spawn(Control {..default()});
-        EntityBuilder::new(commands)
-    }
-}
-
-pub struct EntityBuilder<'w: 'a, 's: 'a, 'a> {
-    entity_commands: EntityCommands<'w, 's, 'a>,
-    //custom_steps: Vec<Box<dyn Fn(&mut EntityCommands) + 'a>>, // Store closures for custom steps
-}
-
-pub struct EntityChildBuilder<'w, 's, 'a> {
-    child_builder: &'a mut ChildBuilder<'w, 's, 'a>,
-}
-
-impl<'w, 's, 'a> EntityChildBuilder<'w, 's, 'a> {
-    pub fn new(child_builder: &'a mut ChildBuilder<'w, 's, 'a>) -> Self {
-        Self { 
-            child_builder: child_builder, 
-            //custom_steps: Vec::new(),
-        }
-    }
-}
- 
-impl<'w, 's, 'a> EntityBuilder<'w, 's, 'a> {
-    fn new(parent: EntityCommands<'w, 's, 'a>) -> Self {
-        Self { 
-            entity_commands: parent, 
-            //custom_steps: Vec::new(),
-        }
-    }
-
-    fn from(parent: &'a mut bevy::prelude::ChildBuilder<'w, 's, '_>) -> Self {
-        let entity_commands: EntityCommands<'w, 's, '_> = parent.spawn_empty();
-        
-        Self {
-            entity_commands: entity_commands, 
-            //custom_steps: Vec::new(),
-        }
-    }
-}
-
-
-
 pub fn process_responsive_elements(window_query: Query<(Entity, &Control, &Window, Changed<Control>)>,
     mut responsive_element_query: Query<(Entity, &mut Control, Option<&WidthLessThan>, Option<&HideOnHeightLessThan>), Without<Window>>) {
 
@@ -581,12 +390,12 @@ pub fn process_responsive_elements(window_query: Query<(Entity, &Control, &Windo
 // Move conflicting queries into a ParamSet: https://bevy-cheatbook.github.io/programming/paramset.html
 pub fn propogate_forms(
     mut commands: Commands,
-    type_registry: Res<AppTypeRegistry>,
-    mut ev_reader: EventReader<SubmitEvent>,
+    //type_registry: Res<AppTypeRegistry>,
+    //mut ev_reader: EventReader<SubmitEvent>,
     //mut label_query: Query<(&mut Label, &AutoBindableProperty)>,
     mut set: ParamSet<(
         Query<(Entity, All<&dyn Bindable>), Or<(With<BindableChanged>, Changed<AutoBindable>)>>,
-        Query<(Entity, Option<&mut Control>, Option<&mut Label>, Option<&mut ImageRect>, Option<&mut Slider>, Option<&mut InputField>, Option<&mut BackgroundColor>, &AutoBindableProperty, Option<&mut AutoBindable>)>
+        Query<(Entity, Option<&mut Control>, Option<&mut BLabel>, Option<&mut ImageRect>, Option<&mut Slider>, Option<&mut InputField>, Option<&mut BackgroundColor>, &AutoBindableProperty, Option<&mut AutoBindable>)>
     )>,
     mut auto_bindable_list_query: Query<(Entity, &AutoBindableList, Option<&Children>)>,
     //form_query: Query<(Entity, &Form, Option<Changed<Form>>)>,
@@ -759,6 +568,8 @@ pub fn propogate_forms(
         }
     }
 }
+
+
 
 pub fn process_form_on_submit(
     mut commands: Commands,

@@ -1,8 +1,15 @@
 use bevy::prelude::*;
 
+#[bevy_trait_query::queryable]
+#[reflect_trait]
+pub trait Bindable {
+    fn get(&self) -> Box<dyn Reflect>;
+    fn set(&mut self, value: Box<dyn Reflect>);
+}
+
 #[derive(Component)]
 pub struct AutoBindable {
-    value: Box<dyn Reflect>
+    pub value: Box<dyn Reflect>
 }
 
 impl AutoBindable {

@@ -1,3 +1,5 @@
+use bevy::prelude::*;
+use crate::*;
 
 #[derive(Component, Clone, Default, Reflect)]
 pub struct InteractState {

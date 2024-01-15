@@ -1,3 +1,4 @@
+use crate::*;
 use bevy::prelude::*;
 use serde::*;
 
@@ -14,7 +15,7 @@ pub struct AutoBindableList {
     pub property_name: String,
     #[reflect(ignore)]
     #[serde(skip)]
-    create_entity: Option<CreateEntityFunc>
+    pub create_entity: Option<CreateEntityFunc>
 }
 
 impl BindableList for AutoBindableList {

@@ -1,3 +1,30 @@
+use bevy::{ecs::system::EntityCommands, utils::default, prelude::*};
+
+use crate::*;
+use common::prelude::*;
+
+pub struct EntityBuilder<'w: 'a, 's: 'a, 'a> {
+    entity_commands: EntityCommands<'w, 's, 'a>,
+    //custom_steps: Vec<Box<dyn Fn(&mut EntityCommands) + 'a>>, // Store closures for custom steps
+}
+
+impl<'w, 's, 'a> EntityBuilder<'w, 's, 'a> {
+    pub fn new(parent: EntityCommands<'w, 's, 'a>) -> Self {
+        Self { 
+            entity_commands: parent, 
+            //custom_steps: Vec::new(),
+        }
+    }
+
+    pub fn from(parent: &'a mut bevy::prelude::ChildBuilder<'w, 's, '_>) -> Self {
+        let entity_commands: EntityCommands<'w, 's, '_> = parent.spawn_empty();
+        
+        Self {
+            entity_commands: entity_commands, 
+            //custom_steps: Vec::new(),
+        }
+    }
+}
 
 impl<'w, 's, 'a>  Builder<'w, 's, 'a> for EntityBuilder<'w, 's, 'a> {
     fn get_commands(&mut self) -> &mut EntityCommands<'w, 's, 'a> {
@@ -359,7 +386,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
                     ExpandWidth: true,
                     ..default()
                 },
-                Label {
+                BLabel {
                     alignment: Anchor::MiddleCenter,
                     text: label,
                     is_single_line: true,
@@ -377,13 +404,13 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     }
 
     fn font_size(mut self, size: f32) -> Self {
-        self.upsert(move |label: &mut Label| {
+        self.upsert(move |label: &mut BLabel| {
             label.font_size = size;
         })
     }
 
     fn is_single_line(mut self) -> Self {
-        self.upsert(move |label: &mut Label| {
+        self.upsert(move |label: &mut BLabel| {
             label.is_single_line = true;
         })
     }
@@ -505,7 +532,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     }
 
     fn label(mut self, text: String, font_size: f32, color: Color, alignment: Anchor, is_single_line: bool) -> Self {
-        self.upsert(move |comp: &mut Label| {
+        self.upsert(move |comp: &mut BLabel| {
             comp.alignment = alignment;
             comp.text = text;
             comp.is_single_line = is_single_line;
@@ -690,7 +717,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     }    
 
     fn align_text(self, alignment: Anchor) -> Self {
-        self.upsert(move |comp: &mut Label| {
+        self.upsert(move |comp: &mut BLabel| {
             comp.alignment = alignment;
         })
     }    
@@ -843,7 +870,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
                 fixed_height: SMALL,
                 ..default()
             },
-            Button {
+            BButton {
                 on_click,
                 ..default()
             },
@@ -937,7 +964,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
                 ExpandWidth: true,
                 ..default()
             },
-            Label {
+            BLabel {
                 alignment: Anchor::MiddleCenter,
                 text,
                 //IsSingleLine: true,
@@ -990,7 +1017,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
                     ExpandWidth: true,
                     ..default()
                 },
-                Label {
+                BLabel {
                     alignment: Anchor::MiddleCenter,
                     text: label.to_string(),
                     is_single_line: true,
@@ -1010,7 +1037,6 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     // Official documentation: https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html
     #[cfg(all(target_arch = "wasm32"))]
     fn google_button(self) -> Self {
-        use crate::prelude::*;
         let origin = get_page_origin().unwrap();
         self.link_image_button( 
             "Sign in with Google".to_string(), 
@@ -1057,7 +1083,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
                     },
                     ImageRect {
                         image,
-                        brightness: GetSecondaryBrightness(color),
+                        brightness: get_secondary_brightness(color),
                         ..default()
                     },
                 ))
@@ -1067,12 +1093,12 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
                     //ExpandWidth: true,
                     ..default()
                 },
-                Label {
+                BLabel {
                     alignment: Anchor::MiddleCenter,
                     text: label.to_string(),
                     font_size,
                     is_single_line: true,
-                    color: GetSecondaryColor(color),
+                    color: get_secondary_color(color),
                     ..default()
                 },
             ));
@@ -1091,11 +1117,11 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
                     Padding: Vec4::splat(15.0),
                     ..default()
                 },
-                Button {
+                BButton {
                     on_click: Some(CommandFunc::new(move |_commands: &mut Commands| {
                         let url = url.clone();
-                        crate::prelude::spawn(async move {
-                            web::go_to_url(url);
+                        spawn(async move {
+                            go_to_url(url);
                         });
                     })),
                     ..default()
@@ -1122,11 +1148,11 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
                         ExpandWidth: true,
                         ..default()
                     },
-                    Label {
+                    BLabel {
                         alignment: Anchor::MiddleCenter,
                         text: label.to_string(),
                         //IsSingleLine: true,
-                        color: GetSecondaryColor(color),
+                        color: get_secondary_color(color),
                         ..default()
                     },
                 ));

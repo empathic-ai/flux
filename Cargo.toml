@@ -2,6 +2,7 @@
 name = "bevy_builder"
 version = "0.1.0"
 edition = "2021"
+exclude = ["/examples"]
 
 [dependencies]
 bevy = { version = "0.11.0" }
