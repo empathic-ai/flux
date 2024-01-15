@@ -24,7 +24,7 @@ fn main() {
 
 // Use the builder to create a simple sign up UI
 fn create_simple_ui(mut commands: Commands) {
-  commands.child().expand().backgroud_color(Color::WHITE).v_list().small_padding().with_children(|parent| {
+  commands.child().expand().v_list().small_padding().with_children(|parent| {
       parent.child().input_field("Username".to_string(), InputType::Default);
       parent.child().input_field("Email".to_string(), InputType::Default);
       parent.child().input_field("Password".to_string(), InputType::Password);
