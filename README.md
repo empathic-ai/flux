@@ -10,7 +10,7 @@ To add to your project, simply run:
 cargo add --git https://github.com/empathic-ai/bevy-builder.git
 ```
 
-Within your app, you can use the builder like so:
+Within your app, you can use the builder like this:
 
 ```Rust
 use bevy::prelude::*;
