@@ -1,4 +1,4 @@
-use crate::*;
+use crate::prelude::*;
 
 use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::ComponentId;

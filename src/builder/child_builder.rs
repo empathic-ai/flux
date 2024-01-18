@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy::utils::default;
 use bevy::hierarchy::ChildBuilder;
 
-use crate::*;
+use crate::prelude::*;
 
 pub trait ChildTrait<'w, 's, 'a> {
     fn child(&'a mut self)  -> EntityBuilder<'w, 's, 'a>;

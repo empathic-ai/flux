@@ -1,12 +1,11 @@
 mod interact_state;
 
 pub use interact_state::*;
-use crate::*;
+use crate::prelude::*;
 use bevy::utils::HashMap;
 use bevy::prelude::*;
 
 use std::clone::Clone;
-use super::DEFAULT_FONT_SIZE;
 
 #[derive(Debug, Clone, Default, Component)]
 pub struct Slider {

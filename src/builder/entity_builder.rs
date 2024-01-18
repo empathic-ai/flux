@@ -1,6 +1,6 @@
 use bevy::{ecs::system::EntityCommands, utils::default, prelude::*};
 
-use crate::*;
+use crate::prelude::*;
 use common::prelude::*;
 
 pub struct EntityBuilder<'w: 'a, 's: 'a, 'a> {
