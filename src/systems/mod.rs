@@ -579,18 +579,19 @@ pub fn process_form_on_submit(
     mut form_query: Query<(Entity, Option<&OnSubmit>)>,
 ) {
     for (input_field, bindable_property) in input_query.iter() {
-        let (entity, bindables) = struct_query.get_mut(bindable_property.entity).unwrap();
-        for mut bindable in bindables {
+        if let Ok((entity, bindables)) = struct_query.get_mut(bindable_property.entity) {
+            for mut bindable in bindables {
 
-            let mut reflect = bindable.get();
-            let reflect_ref = reflect.reflect_mut();
-
-            if let ReflectMut::Struct(value) = reflect_ref {
-                if let Some(field) = value.field_mut(&bindable_property.property_name) {
-                    field.set(Box::new(input_field.text.clone()));
+                let mut reflect = bindable.get();
+                let reflect_ref = reflect.reflect_mut();
+    
+                if let ReflectMut::Struct(value) = reflect_ref {
+                    if let Some(field) = value.field_mut(&bindable_property.property_name) {
+                        field.set(Box::new(input_field.text.clone()));
+                    }
                 }
+                bindable.set(reflect);
             }
-            bindable.set(reflect);
         }
     }
 
