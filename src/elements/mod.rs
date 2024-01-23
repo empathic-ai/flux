@@ -58,7 +58,7 @@ pub struct Control {
     pub BorderRadius: Vec4,
     pub BorderWidth: i32,
     pub Pivot: Anchor,
-    pub IsVisible: bool,
+    pub is_visible: bool,
     // Right, bottom, left, top
     pub Padding: Vec4,
     pub FitHeight: bool,
@@ -139,7 +139,7 @@ impl Default for Control {
             BorderRadius: Vec4::splat(0.0),
             BorderWidth: 0,
             Pivot: Anchor::MiddleCenter,
-            IsVisible: true,
+            is_visible: true,
             Padding: Vec4::new(0.0, 0.0, 0.0, 0.0),
             FitWidth: false,
             FitHeight: false,

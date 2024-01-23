@@ -45,7 +45,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
         }
         self.insert((
             Control {
-                IsVisible: true,
+                is_visible: true,
                 //ExpandHeight: true,
                 fixed_height: 300.0,
                 fixed_width: 300.0,
@@ -155,7 +155,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
             Control {
                 Padding: Vec4::splat(SMALL_SPACE),
                 BorderRadius: Vec4::splat(SMALL_SPACE),
-                IsVisible: true,
+                is_visible: true,
                 ..default()
             },
             Container { ..default() },
@@ -468,7 +468,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
             Control {
                 ExpandWidth: true,
                 BorderRadius: Vec4::splat(10.0),
-                IsVisible: true,
+                is_visible: true,
                 Padding: Vec4::splat(SMALL_SPACE),
                 ..default()
             },
@@ -489,7 +489,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
             Control {
                 ExpandWidth: true,
                 BorderRadius: Vec4::splat(10.0),
-                IsVisible: true,
+                is_visible: true,
                 Padding: Vec4::splat(SMALL_SPACE),
                 ..default()
             },
@@ -712,7 +712,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
 
     fn is_visible(self, is_visible: bool) -> Self {
         self.upsert(move |comp: &mut Control| {
-            comp.IsVisible = is_visible;
+            comp.is_visible = is_visible;
         })
     }    
 
@@ -726,10 +726,8 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
         self.insert((
             Control {
                 ExpandWidth: true,
-                ExpandHeight: true,
                 Padding: Vec4::splat(SMALL_SPACE),
                 BorderRadius: Vec4::splat(10.0),
-                IsVisible: false,
                 ..default()
             },
             Container { ..default() },
@@ -812,24 +810,8 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     fn plus_button(
         mut self,
     ) -> Self {
-        self.fixed_height(LARGE).fixed_width(LARGE).h_list().with_children(|parent| {
-            parent.child().pill().fixed_height(LARGE-20.0).fixed_width(LARGE-20.0).insert((
-                Shadow {},
-                BackgroundColor(*GREEN)
-            ))
-            .with_children(|parent| {
-                parent.spawn((
-                    Control {
-                        fixed_width: SMALL,
-                        fixed_height: SMALL,
-                        ..default()
-                    },
-                    ImageRect {
-                        image: "assets/icons/Plus.png".to_string(),
-                        ..default()
-                    },
-                ));
-            });
+        self.fixed_size(LARGE).h_list().small_padding().background_color(*GREEN).shadow().pill().with_children(|parent| {
+            parent.child().image("assets/icons/Plus.png".to_string()).expand();
         })
     }
 
@@ -960,7 +942,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     fn stylized_title(self, text: String) -> Self {
         self.insert((
             Control {
-                Padding: Vec4::new(0.0, 5.0, 0.0, 0.0),
+                Padding: Vec4::new(0.0, 0.0, 0.0, 0.0),
                 ExpandWidth: true,
                 ..default()
             },
@@ -974,7 +956,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
                 color: Color::BLACK,
                 ..default()
             },
-        ))
+        )).fixed_height(25.0)
         /*
         self.entity_commands.insert((
             Control {
@@ -1042,7 +1024,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
             "Sign in with Google".to_string(), 
             "assets/icons/Google.png".to_string(), 
             Color::WHITE, 
-            format!("https://oauth.taby.ai/oauth2/authorize?identity_provider=Google&redirect_uri={origin}/login&response_type=CODE&client_id=5jjqc5ebkpavqdsiq5lh18uh6q")
+            format!("https://oauth.empathic.social/oauth2/authorize?identity_provider=Google&redirect_uri={origin}/login&response_type=CODE&client_id=5jjqc5ebkpavqdsiq5lh18uh6q")
         ).scale_on_hover()
     }
 

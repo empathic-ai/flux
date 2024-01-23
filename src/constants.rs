@@ -7,7 +7,7 @@ pub const EXTRA_LARGE: f32 = 160.0;
 pub const LARGE: f32 = 60.0;
 pub const MEDIUM: f32 = 50.0;
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
-pub const SMALL: f32 = 20.0;
+pub const SMALL: f32 = 25.0;
 pub const SMALL_SPACE: f32 = 15.0;
 pub const HALF_SMALL_SPACE: f32 = 7.5;
 

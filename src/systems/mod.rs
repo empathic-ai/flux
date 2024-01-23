@@ -92,7 +92,7 @@ pub struct SignUpEvent {
     pub password: String
 }
 
-#[derive(Clone, Component)]
+#[derive(Clone, Component, Default)]
 pub struct BindableChanged {
 }
 
@@ -105,6 +105,16 @@ pub struct OnClick {
 pub struct OnShow {
     pub func: Option<CommandFunc>,
     pub was_visible: bool
+}
+
+impl Default for OnShow {
+    fn default() -> Self {
+        Self { func: None, was_visible: false }
+    }
+}
+
+#[derive(Clone, Component)]
+pub struct Shown {
 }
 
 #[derive(Clone, Component, Default, Reflect)]
@@ -366,13 +376,13 @@ pub fn process_responsive_elements(window_query: Query<(Entity, &Control, &Windo
         for (entity, mut control, width_less_than, height_less_than) in responsive_element_query.iter_mut() {
             if let Some(width_less_than) = width_less_than {
                 if width_less_than.is_visible {
-                    control.IsVisible = changed_size.x <= width_less_than.width;
+                    control.is_visible = changed_size.x <= width_less_than.width;
                 } else {
-                    control.IsVisible = changed_size.x > width_less_than.width;
+                    control.is_visible = changed_size.x > width_less_than.width;
                 }
             }
             if let Some(height_less_than) = height_less_than {
-                control.IsVisible = changed_size.y > height_less_than.0;
+                control.is_visible = changed_size.y > height_less_than.0;
             }
         }
     }
@@ -557,7 +567,7 @@ pub fn propogate_forms(
                     if let Some(mut control) = control {
                         if let Some(value) = property_value.downcast_ref::<bool>() {
                             let _value = value.clone();
-                            control.IsVisible = value.to_owned();
+                            control.is_visible = value.to_owned();
                             let property_name = bindable_property.property_name.clone();
                             //console::log!(format!("SET BINDABLE VALUE: {property_name}"));
                             //console::log!(format!("IS VISIBLE: {_value}"));
