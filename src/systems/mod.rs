@@ -216,11 +216,6 @@ pub fn on_show_detection() {
 pub fn setup() {
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub fn get_route() -> String {
-    "".to_string()
-}
-
 pub fn get_components_for_entity<'a>(
     entity: &Entity,
     archetypes: &'a Archetypes,
