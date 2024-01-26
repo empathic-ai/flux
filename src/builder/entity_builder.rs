@@ -216,8 +216,8 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     fn large_space(mut self, image: String) -> Self {
         self.insert((
             Control {
-                fixed_width: LARGE,
-                fixed_height: LARGE,
+                fixed_width: MEDIUM_LARGE,
+                fixed_height: MEDIUM_LARGE,
                 BorderRadius: Vec4::splat(10.0),
                 ..default()
             },
@@ -262,8 +262,8 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     fn mini_group(mut self) -> Self {
         self.insert((
             Control {
-                fixed_width: LARGE,
-                fixed_height: LARGE,
+                fixed_width: MEDIUM_LARGE,
+                fixed_height: MEDIUM_LARGE,
                 BorderRadius: Vec4::splat(10.0),
                 ..default()
             },
@@ -298,8 +298,8 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     fn mini_group_avatar_image(self, image: String, border_radius: Vec4) -> Self {
         self.insert((
             Control {
-                fixed_width: LARGE / 2.0,
-                fixed_height: LARGE / 2.0,
+                fixed_width: MEDIUM_LARGE / 2.0,
+                fixed_height: MEDIUM_LARGE / 2.0,
                 BorderRadius: border_radius,
                 ..default()
             },
@@ -308,15 +308,15 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     }
 
     fn mini_image(self, image: String) -> Self {
-        self.image(image).fixed_size(LARGE / 2.0)
+        self.image(image).fixed_size(MEDIUM_LARGE / 2.0)
     }
 
     fn medium_image(self, image: String) -> Self {
-        self.image(image).fixed_size(LARGE / 1.5)
+        self.image(image).fixed_size(MEDIUM_LARGE / 1.5)
     }
 
     fn large_image(self, image: String) -> Self {
-        self.image(image).fixed_size(LARGE)
+        self.image(image).fixed_size(MEDIUM_LARGE)
     }
 
     fn image(self, image: String) -> Self {
@@ -810,7 +810,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     fn plus_button(
         mut self,
     ) -> Self {
-        self.fixed_size(LARGE).h_list().small_padding().background_color(*GREEN).shadow().pill().with_children(|parent| {
+        self.fixed_size(MEDIUM_LARGE).h_list().small_padding().background_color(*GREEN).shadow().pill().with_children(|parent| {
             parent.child().image("assets/icons/Plus.png".to_string()).expand();
         })
     }
