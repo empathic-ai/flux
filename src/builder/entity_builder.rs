@@ -88,7 +88,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
             move |command| {
                 let event = event.clone();
                 command.add(move |world: &mut World| {
-                    //console::log!("Sending submit event!");
+                    log("Sending click event!");
                     world.send_event(event);
                 });
             }
