@@ -1,6 +1,6 @@
 # 🛠️ Bevy Builder
 
-**⚠️ Warning: Still in early development!**
+**⚠️ Warning: Still in early development! ⚠️**
 
 Create complex configurations of entities (scenes, UI layouts, etc.) using a straightforward builder pattern.
 
