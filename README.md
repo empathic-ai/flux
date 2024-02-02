@@ -1,6 +1,6 @@
 # 🛠️ Bevy Builder
 
-Seamlessly create complex configurations of entities (scenes, UI layouts, etc.) using a straightforward builder pattern.
+Create complex configurations of entities (scenes, UI layouts, etc.) using a straightforward builder pattern.
 
 # Instructions
 
