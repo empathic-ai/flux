@@ -137,6 +137,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
         self.insert(
             AutoBindableProperty {
                 entity: entity,
+                component_name: "*".to_string(),
                 property_name: property_name.to_string(),
                 entity_func: Some(entity_func)
             }
@@ -168,12 +169,54 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
         ))
     }
 
+    fn bind_component_property(mut self, entity: Entity, component_name: &str, property_name: &str) -> Self {
+        self.insert(
+            AutoBindableProperty {
+                entity: entity,
+                component_name: component_name.to_string(),
+                property_name: property_name.to_string(),
+                entity_func: None
+            }
+        )
+    }
+
     fn bind_property(mut self, entity: Entity, property_name: &str) -> Self {
         self.insert(
             AutoBindableProperty {
                 entity: entity,
+                component_name: "*".to_string(),
                 property_name: property_name.to_string(),
                 entity_func: None
+            }
+        )
+    }
+
+    fn bind_path(mut self, path: Vec<&str>, entity_func: SetPropertyFunc) -> Self {
+        self.insert(
+            PropertyBinder {
+                property_path_parts: path.iter().map(|x| x.to_string()).collect(),
+                property_entities: vec![],
+                entity_func: Some(entity_func)
+            }
+        )
+    }
+
+    fn bind_path_list(mut self, path: Vec<&str>, create_entity_func: CreateEntityFunc) -> Self {
+        self.insert(
+            PropertyBinder {
+                property_path_parts: path.iter().map(|x| x.to_string()).collect(),
+                property_entities: vec![],
+                entity_func: None
+            }
+        )
+    }
+
+    fn bind_component_list(mut self, source_entity: Entity, component_name: &str, property_name: &str, create_entity_func: CreateEntityFunc) -> Self {
+        self.insert(
+            AutoBindableList {
+                entity: source_entity,
+                property_name: property_name.to_string(),
+                create_entity: Some(create_entity_func)
             }
         )
     }
