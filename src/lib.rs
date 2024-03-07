@@ -1,3 +1,6 @@
+#![allow(warnings)]
+#![allow(unused)]
+
 pub mod binding;
 pub mod builder;
 pub mod elements;
