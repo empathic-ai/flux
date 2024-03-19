@@ -3,7 +3,7 @@ use bevy_builder::prelude::*;
 
 fn main() {
   App::new()
-    .add_startup_system(create_simple_ui)
+    .add_systems(Startup, create_simple_ui)
     .run();
 }
 

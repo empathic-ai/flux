@@ -215,6 +215,7 @@ pub fn on_show_detection() {
 pub fn setup() {
 }
 
+/* 
 pub fn get_components_for_entity<'a>(
     entity: &Entity,
     archetypes: &'a Archetypes,
@@ -255,7 +256,7 @@ pub fn process(world: &mut World) {
     //let query: EcsValueRefQuery;
 
     let type_registry = TypeRegistry::default();
-    let type_registry = type_registry.read();
+    //let type_registry = type_registry.read();
 
     let archetypes = world.archetypes();
     let entities = world.iter_entities();
@@ -297,6 +298,7 @@ pub fn process(world: &mut World) {
 
     //world.init_resource::<Binding>();
 }
+*/
 
 pub struct CommandBuilder<'w, 's> {
     commands: Commands<'w, 's>,
@@ -312,7 +314,7 @@ impl<'w, 's> CommandBuilder<'w, 's> {
     }
 
     pub fn spawn_entity<T: Bundle>(mut self, bundle: T) -> Self {//&'b mut EntityCommands<'_, '_> {
-        let entity_commands: EntityCommands<'_, '_, '_> = self.commands.spawn(
+        let entity_commands: EntityCommands<'_> = self.commands.spawn(
             bundle
         );
         self
@@ -355,12 +357,12 @@ impl<'w, 's> CommandBuilder<'w, 's> {
     }
 }
 
-pub fn process_responsive_elements(window_query: Query<(Entity, &Control, &Window, Changed<Control>)>,
+pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &Window)>,
     mut responsive_element_query: Query<(Entity, &mut Control, Option<&WidthLessThan>, Option<&HideOnHeightLessThan>), Without<Window>>) {
 
     let mut changed_size: Option<Vec2> = None;
-    for (entity, control, window, changed_control) in window_query.iter() {
-        if changed_control {
+    for (entity, control, window) in window_query.iter() {
+        if control.is_changed() {
             changed_size = Some(Vec2::new(control.width, control.height));
         }
     }

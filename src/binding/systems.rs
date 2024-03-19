@@ -91,7 +91,7 @@ pub fn propogate_forms(
             } else if let ReflectRef::Value(value) = reflect_ref {
                 // TODO: Handle
                 if let Some(mut field_values) = binding_queue.get_mut(&entity) {
-                    let type_name = value.type_name();
+                    //let type_name = value.reflect_type_path();
                     let id = entity.to_bits().to_string();
                     //console::log!(format!("PROPOGATING VALUE OF TYPE: {type_name} FROM: {id}"));
                     let value = value.clone_value();
@@ -270,7 +270,7 @@ pub fn process_form_on_submit(
         }
     }
 
-    for ev in ev_reader.iter() {
+    for ev in ev_reader.read() {
         commands.entity(ev.0).insert(Submitted { });
     }
     /*

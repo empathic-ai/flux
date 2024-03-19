@@ -5,13 +5,13 @@ use bevy::hierarchy::ChildBuilder;
 
 use crate::prelude::*;
 
-pub trait ChildTrait<'w, 's, 'a> {
-    fn child(&'a mut self)  -> EntityBuilder<'w, 's, 'a>;
+pub trait ChildTrait<'a> {
+    fn child(&'a mut self)  -> EntityBuilder<'a>;
 }
 
-impl<'w, 's, 'a> ChildTrait<'w, 's, 'a> for ChildBuilder<'w, 's, '_> {
-    fn child(&'a mut self) -> EntityBuilder<'w, 's, 'a> {
-        let entity_commands: EntityCommands<'w, 's, '_> = self.spawn(Control {
+impl<'a> ChildTrait<'a> for ChildBuilder<'_> {
+    fn child(&'a mut self) -> EntityBuilder<'a> {
+        let entity_commands: EntityCommands<'_> = self.spawn(Control {
             ..default()
         });
         
@@ -20,19 +20,25 @@ impl<'w, 's, 'a> ChildTrait<'w, 's, 'a> for ChildBuilder<'w, 's, '_> {
     }
 }
 
-pub trait EntityCommandsChildTrait<'w, 's, 'a> {
-    fn builder(&'a mut self)  -> EntityBuilder<'w, 's, 'a>;
-    fn child(&'a mut self)  -> EntityBuilder<'w, 's, 'a>;
+pub trait EntityCommandsChildTrait<'a> {
+    fn builder(self) -> EntityBuilder<'a>;
+    //fn child(&'a mut self) -> EntityBuilder<'_>;
 }
 
-impl<'w, 's, 'a> EntityCommandsChildTrait<'w, 's, 'a> for EntityCommands<'w, 's, '_> {
-    fn builder(&'a mut self) -> EntityBuilder<'w, 's, 'a> {
+impl<'a> EntityCommandsChildTrait<'a> for EntityCommands<'a> {
+    
+    fn builder(self) -> EntityBuilder<'a> {
         // Your implementation here
-        let id = self.id();
-        let commands: EntityCommands<'w, 's, '_> = self.commands().entity(id);
-        EntityBuilder::new(commands)
+        //let id = self.id();
+
+        //let mut c: &mut Commands<'_, '_> = &mut ;
+        //let c = &mut self.commands();
+        //let commands = c.entity(id);
+        EntityBuilder::new(self)
     }
-    fn child(&'a mut self) -> EntityBuilder<'w, 's, 'a> {
+
+    /*
+    fn child(&'a mut self) -> EntityBuilder<'_> {
         // Your implementation here
         let id = self.id();
         let mut child_id: Option<Entity> = None;
@@ -41,27 +47,31 @@ impl<'w, 's, 'a> EntityCommandsChildTrait<'w, 's, 'a> for EntityCommands<'w, 's,
                 child_id = Some(parent.child().id());
             }
         );
+        //let mut c = self.commands();
         let commands = self.commands().entity(child_id.unwrap());
-        EntityBuilder::new(commands)
+
+        self.add_child(child)
+        EntityBuilder::from(commands)
     }
+    */
 }
 pub trait CommandsChildTrait<'w, 's, 'a> {
-    fn child(&'a mut self)  -> EntityBuilder<'w, 's, 'a>;
+    fn child(&'a mut self)  -> EntityBuilder<'a>;
 }
 
 impl<'w, 's, 'a> CommandsChildTrait<'w, 's, 'a> for Commands<'w, 's> {
-    fn child(&'a mut self) -> EntityBuilder<'w, 's, 'a> {
-        let commands: EntityCommands<'w, 's, '_> = self.spawn(Control {..default()});
+    fn child(&'a mut self) -> EntityBuilder<'a> {
+        let commands: EntityCommands<'_> = self.spawn(Control {..default()});
         EntityBuilder::new(commands)
     }
 }
 
-pub struct EntityChildBuilder<'w, 's, 'a> {
-    child_builder: &'a mut ChildBuilder<'w, 's, 'a>,
+pub struct EntityChildBuilder<'a> {
+    child_builder: &'a mut ChildBuilder<'a>,
 }
 
-impl<'w, 's, 'a> EntityChildBuilder<'w, 's, 'a> {
-    pub fn new(child_builder: &'a mut ChildBuilder<'w, 's, 'a>) -> Self {
+impl<'a> EntityChildBuilder<'a> {
+    pub fn new(child_builder: &'a mut ChildBuilder<'a>) -> Self {
         Self { 
             child_builder: child_builder, 
             //custom_steps: Vec::new(),

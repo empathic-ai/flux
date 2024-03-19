@@ -3,21 +3,21 @@ use bevy::{ecs::system::EntityCommands, utils::default, prelude::*};
 use crate::prelude::*;
 use common::prelude::*;
 
-pub struct EntityBuilder<'w: 'a, 's: 'a, 'a> {
-    entity_commands: EntityCommands<'w, 's, 'a>,
+pub struct EntityBuilder<'a> {
+    entity_commands: EntityCommands<'a>,
     //custom_steps: Vec<Box<dyn Fn(&mut EntityCommands) + 'a>>, // Store closures for custom steps
 }
 
-impl<'w, 's, 'a> EntityBuilder<'w, 's, 'a> {
-    pub fn new(parent: EntityCommands<'w, 's, 'a>) -> Self {
+impl<'a> EntityBuilder<'a> {
+    pub fn new(parent: EntityCommands<'a>) -> Self {
         Self { 
             entity_commands: parent, 
             //custom_steps: Vec::new(),
         }
     }
 
-    pub fn from(parent: &'a mut bevy::prelude::ChildBuilder<'w, 's, '_>) -> Self {
-        let entity_commands: EntityCommands<'w, 's, '_> = parent.spawn_empty();
+    pub fn from(parent: &'a mut bevy::prelude::ChildBuilder<'_>) -> Self {
+        let entity_commands: EntityCommands<'_> = parent.spawn_empty();
         
         Self {
             entity_commands: entity_commands, 
@@ -26,13 +26,13 @@ impl<'w, 's, 'a> EntityBuilder<'w, 's, 'a> {
     }
 }
 
-impl<'w, 's, 'a>  Builder<'w, 's, 'a> for EntityBuilder<'w, 's, 'a> {
-    fn get_commands(&mut self) -> &mut EntityCommands<'w, 's, 'a> {
+impl<'a>  Builder<'a> for EntityBuilder<'a> {
+    fn get_commands(&mut self) -> &mut EntityCommands<'a> {
         &mut self.entity_commands
     }
 }
 
-pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
+pub trait BaseBuilder<'a>: Builder<'a> {
     fn dynamic_view(mut self, prompt: String) -> Self {
         self.insert(DynamicView { prompt: prompt })
     }
@@ -370,10 +370,10 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
 
     fn entity_with_children<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(Entity, &mut ChildBuilder<'_, '_, '_>),
+        F: FnOnce(Entity, &mut ChildBuilder<'_>),
     {
         let entity = self.get_commands().id();
-        self.get_commands().with_children(|parent: &mut ChildBuilder<'_, '_, '_>| {
+        self.get_commands().with_children(|parent: &mut ChildBuilder<'_>| {
             f(entity, parent);
         });
         self
@@ -381,7 +381,7 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
 
     fn with_children<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(&mut ChildBuilder<'_, '_, '_>),
+        F: FnOnce(&mut ChildBuilder<'_>),
     {
         self.get_commands().with_children(f);
         self
@@ -1209,5 +1209,5 @@ pub trait BaseBuilder<'w: 'a, 's: 'a, 'a>: Builder<'w, 's, 'a> {
     }
 }
 
-impl<'w, 's, 'a> BaseBuilder<'w, 's, 'a> for EntityBuilder<'w, 's, 'a> {
+impl<'a> BaseBuilder<'a> for EntityBuilder<'a> {
 }
