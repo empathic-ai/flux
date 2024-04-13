@@ -1170,7 +1170,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                 ));
                 parent.spawn((
                     Control {
-                        ExpandWidth: true,
+                        //ExpandWidth: true,
                         ..default()
                     },
                     BLabel {
