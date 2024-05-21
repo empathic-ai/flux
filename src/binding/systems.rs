@@ -1,3 +1,5 @@
+use std::any::TypeId;
+
 use crate::prelude::*;
 
 use bevy::prelude::*;
@@ -7,6 +9,11 @@ use bevy::utils::HashMap;
 use bevy_trait_query::All;
 
 use common::prelude::*;
+
+#[derive(Resource)]
+pub struct ReferenceChanges {
+    pub changes: HashMap<TypeId, Vec<(Entity, String, String)>>
+}
 
 // TODO: rewrite to propogate bindings until a queue of all binding events is emptied
 // 1. Create queue from bindable_struct_query
@@ -24,15 +31,22 @@ pub fn propogate_forms(
     //mut ev_reader: EventReader<SubmitEvent>,
     //mut label_query: Query<(&mut Label, &AutoBindableProperty)>,
     mut set: ParamSet<(
+        // 0: Query of bindable components that have recently changed
         Query<(Entity, All<&dyn Bindable>), Or<(With<BindableChanged>, Changed<AutoBindable>)>>,
         Query<(Entity, Option<&mut Control>, Option<&mut BLabel>, Option<&mut ImageRect>, Option<&mut Slider>, Option<&mut InputField>, Option<&mut BackgroundColor>, &AutoBindableProperty, Option<&mut AutoBindable>)>,
-        Query<(Entity, &mut PropertyBinder)>
+        Query<(Entity, &mut PropertyBinder)>,
+        // 4: Query of all bindable records
+        Query<(Entity, &DBRecord, All<&dyn Bindable>)>
     )>,
     mut auto_bindable_list_query: Query<(Entity, &AutoBindableList, Option<&Children>)>,
     //form_query: Query<(Entity, &Form, Option<Changed<Form>>)>,
 ) {
     let mut binding_queue = HashMap::<Entity, HashMap::<String, Box<dyn Reflect>>>::new();
-
+    
+    let records = set.p3().iter().map(|(entity, record, bindables)| {
+        (record, bindables.iter().next().unwrap().get())
+    });
+    
     for (entity, bindables) in set.p0().iter() {//bindable_struct_query.iter() {
         binding_queue.insert(entity, HashMap::<String, Box<dyn Reflect>>::new());
 

@@ -7,6 +7,7 @@ pub mod elements;
 pub mod constants;
 pub mod functions;
 pub mod systems;
+pub mod database;
 
 pub mod prelude {
 	pub use crate::binding::*;
@@ -15,4 +16,5 @@ pub mod prelude {
 	pub use crate::constants::*;
 	pub use crate::functions::*;
 	pub use crate::systems::*;
+	pub use crate::database::*;
 }
