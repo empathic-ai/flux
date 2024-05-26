@@ -19,3 +19,4 @@ uuid = { version = "1.2.2", features = ["v4"] }
 
 prost = "0.12.1"
 surrealdb = { version = "1.4.2", default-features = false, features = ["protocol-ws"] }
+blake3 = { version = "1.5.1", features = ["pure"] }
