@@ -15,7 +15,7 @@ common = { git = "https://github.com/empathic-ai/common.git" }
 serde = { version = "1.0.149", features = ["derive"] }
 lazy_static = "1.4.0"
 anyhow = "1.0.71"
-uuid = { version = "1.2.2", features = ["v4"] }
+uuid = { version = "1.9.1", features = ["v4"] }
 
 prost = "0.12.1"
 surrealdb = { version = "1.5.0", default-features = false, features = ["protocol-ws"] }
