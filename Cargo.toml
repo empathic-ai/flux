@@ -14,9 +14,10 @@ bevy-trait-query = "0.5.1"
 common = { git = "https://github.com/empathic-ai/common.git" }
 serde = { version = "1.0.149", features = ["derive"] }
 lazy_static = "1.4.0"
-anyhow = "1.0.71"
+anyhow = { version = "1.0.71", default-features = false }
 uuid = { version = "1.2.2", features = ["v4"] }
 
 prost = "0.12.1"
 surrealdb = { version = "1.5.0", default-features = false, features = ["protocol-ws"] }
 blake3 = { version = "1.5.1", features = ["pure"] }
+my-workspace-hack = { version = "0.1", path = "../../../my-workspace-hack" }
