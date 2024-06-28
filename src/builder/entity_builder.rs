@@ -97,15 +97,15 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 
     fn by_empathic_title(mut self, brightness: f32, size: f32) -> Self {
         self.expand_width().h_list().padding(Vec4::splat(HALF_SMALL_SPACE*size)).with_children(|parent| {
-            parent.child().label("by".to_string(), DEFAULT_FONT_SIZE*size, Color::rgb(brightness, brightness, brightness), Anchor::MiddleLeft, true);
-            parent.child().fixed_width(7.5*size);
+            //parent.child().label("by".to_string(), DEFAULT_FONT_SIZE*size, Color::rgb(brightness, brightness, brightness), Anchor::MiddleLeft, true);
+            //parent.child().fixed_width(7.5*size);
             parent.child().insert((
                 ImageRect {
                     image: "assets/icons/Empathic Title.png".to_string(),
                     brightness: brightness,
                     ..default()
                 },
-            )).fixed_width(120.0*size).expand_height();
+            )).fixed_width(120.0*size).fixed_height(DEFAULT_FONT_SIZE*size);//.expand_height();
         })
     }
 
