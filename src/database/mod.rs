@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::marker::PhantomData;
+use std::option::IterMut;
 
 use bevy::{ecs::system::SystemParam, prelude::*};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
@@ -12,6 +13,7 @@ use bevy::reflect::Typed;
 use uuid::Uuid;
 use anyhow::Result;
 use std::fmt::Display;
+use std::fmt::Debug;
 
 #[derive(Component, Debug, Default)]
 pub struct DBRecord {
@@ -70,7 +72,7 @@ impl<'de> Deserialize<'de> for Thing {
 
 impl Display for Thing {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.id.fmt(f)
+        std::fmt::Display::fmt(&self.id, f)
     }
 }
 
@@ -86,7 +88,7 @@ pub struct DBCache<T> {
 }
 
 #[derive(SystemParam)]
-pub struct DbQuery<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned> {
+pub struct DbQuery<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clone + Debug> {
     records_query: Query<'w, 's, (&'static mut T, &'static DBRecord)>,
     cache: ResMut<'w, DBCache<T>>,
     db: Res<'w, DBConfig>
@@ -96,9 +98,11 @@ pub trait DB<T> {
     fn add_or_set(&mut self, id: Thing, record: T) -> Thing;
     fn add_or_get(&mut self, id: Thing, record: T) -> Mut<'_, T>;
     fn get(&mut self, id: Thing) -> Option<Mut<'_, T>>;
+    //fn iter_mut(&mut self) -> Vec<Mut<'_, T>>;
+    fn iter(&mut self) -> Vec<(Thing, T)>;
 }
 
-impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned> DB<T> for DbQuery<'w, 's, T> {
+impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clone + Debug> DB<T> for DbQuery<'w, 's, T> {
 
     fn add_or_set(&mut self, id: Thing, record: T) -> Thing {
         let _ = self.add_or_get(id.clone(), record);
@@ -166,6 +170,18 @@ impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned> DB<T
             */
         }
     }
+    
+    //fn iter(&mut self) -> Vec<Mut<'_, T>> {
+        // Gets cached records--may use later for more real-time updates but currently just grabbing all records from db
+        //let mut iter = self.cache.cached_records.iter_mut().map(|mut o| Mut::new(&mut o.1.2, &mut o.1.0, &mut o.1.1, Tick::new(0), Tick::new(0))).collect();
+    //}
+
+    fn iter(&mut self) -> Vec<(Thing, T)> {
+        let db = &self.db.db;
+        let records = bevy::tasks::block_on(get_records::<T>(&db)).expect("Failed to get records.");
+        println!("Records found for {}: {}", T::short_type_path(), records.len());
+        records
+    }
 }
 
 
@@ -173,3 +189,20 @@ pub async fn get_record<T: Typed + DeserializeOwned>(db: &Surreal<Any>, id: Thin
     let o: Option<T> = db.select((T::short_type_path(), id.id.clone())).await?;
     Ok(o)
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TypedRecord<T> where T: Debug + Serialize {
+    #[allow(dead_code)]
+    id: surrealdb::sql::Thing,
+    #[serde(flatten)]
+    record: T
+}
+
+pub async fn get_records<T: Typed + Serialize + DeserializeOwned + Clone + Debug>(db: &Surreal<Any>) -> anyhow::Result<Vec<(Thing, T)>> {
+    let o: Vec<TypedRecord<T>> = db.select(T::short_type_path()).await?;
+    let o = o.iter().map(|record| {
+        (Thing::from(&record.id.id.to_string()), record.record.clone())
+    }).collect();
+    Ok(o)
+}
+
