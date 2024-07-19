@@ -745,7 +745,11 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self.upsert(move |comp: &mut Control| {
             comp.ExpandWidth = true;
         })
-    }   
+    }
+
+    fn modify<F>(self, func: F) -> Self where F: FnOnce(Self) -> Self + Send + 'static {
+        func(self)
+    } 
 
     fn expand_height(self) -> Self {
         self.upsert(move |comp: &mut Control| {
