@@ -10,7 +10,7 @@ bevy = []
 
 [dependencies]
 bevy = { version = "=0.13.0", default-features = false, features = ["bevy_ui", "bevy_asset"] }
-bevy-trait-query = "0.5.1"
+bevy-trait-query = { git = "https://github.com/RobWalt/bevy-trait-query.git" }
 common = { git = "https://github.com/empathic-ai/common.git" }
 serde = { version = "1.0.149", features = ["derive"] }
 lazy_static = "1.4.0"
@@ -19,5 +19,5 @@ uuid = { version = "1.2.2", features = ["v4"] }
 
 prost = "0.12.1"
 surrealdb = { version = "1.5.0", default-features = false, features = ["protocol-ws"] }
-blake3 = { version = "1.5.1", features = ["pure"] }
-my-workspace-hack = { version = "0.1", path = "../../../my-workspace-hack" }
+# blake3 = { version = "1.5.1", features = ["pure"] }
+# my-workspace-hack = { version = "0.1", path = "../../../my-workspace-hack" }

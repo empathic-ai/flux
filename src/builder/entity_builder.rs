@@ -1,4 +1,4 @@
-use bevy::{ecs::system::EntityCommands, utils::default, prelude::*};
+use bevy::{ecs::system::EntityCommands, prelude::*, utils::default};
 
 use crate::prelude::*;
 use common::prelude::*;
@@ -569,7 +569,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
         .with_children(|parent| {
             parent.child().flexible_h_line();
-            parent.child().label(text, 13.0, Color::GRAY, Anchor::MiddleCenter, true);
+            parent.child().label(text, 13.0, Color::GRAY.into(), Anchor::MiddleCenter, true);
             parent.child().flexible_h_line();
         })
     }
@@ -974,11 +974,11 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             Control { ExpandWidth: true, fixed_height: SMALL_SPACE, BorderRadius: Vec4::splat(SMALL_SPACE/2.0), Padding: Vec4::new(0.0, 0.0, 0.0, 0.0), ..default() },
             Container { ..default() },
             HList { spacing: 0.0, anchor: Anchor::MiddleLeft, ..default() },
-            BackgroundColor(Color::hex("b1acff").unwrap())
+            BackgroundColor(Color::hex("b1acff").unwrap().into())
         )).with_children(|parent| {
             fill_entity = Some(parent.spawn((
                 Control { fixed_width: 270.0*0.5, ExpandHeight: true, BorderRadius: Vec4::splat(SMALL_SPACE/2.0), ..default() },
-                BackgroundColor(Color::hex("625AFAFF").unwrap()),
+                BackgroundColor(Color::hex("625AFAFF").unwrap().into()),
                 Shadow {}
             )).id());
         }).insert(

@@ -9,12 +9,12 @@ pub trait BindableList {
     fn set(&self, value: &Box<&dyn Reflect>) {}
 }
 
-#[derive(Clone, Component, Serialize, Deserialize, Reflect)]
+#[derive(Clone, Component, Reflect)]
 pub struct AutoBindableList {
     pub entity: Entity,
     pub property_name: String,
     #[reflect(ignore)]
-    #[serde(skip)]
+    //#[serde(skip)]
     pub create_entity: Option<CreateEntityFunc>
 }
 
