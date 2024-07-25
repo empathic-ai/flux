@@ -14,13 +14,13 @@ pub const HALF_SMALL_SPACE: f32 = 7.5;
 
 lazy_static! {
     pub static ref BLUE: Color = {
-        Color::hex("0097F2").unwrap().into()
+        Srgba::hex("0097F2").unwrap().into()
     };
     pub static ref ORANGE: Color = {
-        Color::hex("ff8400").unwrap().into()
+        Srgba::hex("ff8400").unwrap().into()
     };
     pub static ref GREEN: Color = {
-        Color::hex("1db951").unwrap().into()
+        Srgba::hex("1db951").unwrap().into()
     };
 }
 

@@ -9,8 +9,8 @@ default = ["bevy"]
 bevy = []
 
 [dependencies]
-bevy = { version = "=0.13.0", default-features = false, features = ["bevy_ui", "bevy_asset"] }
-bevy-trait-query = { git = "https://github.com/RobWalt/bevy-trait-query.git" }
+bevy = { version = "=0.14.0", default-features = false, features = ["bevy_ui", "bevy_asset"] }
+bevy-trait-query = { git = "https://github.com/dead-money/bevy-trait-query", branch = "bevy-0.14" }
 common = { git = "https://github.com/empathic-ai/common.git" }
 serde = { version = "1.0.149", features = ["derive"] }
 lazy_static = "1.4.0"
