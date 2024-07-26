@@ -1,4 +1,6 @@
 use bevy::{ecs::system::EntityCommands, prelude::*, utils::default};
+use bevy_cobweb_ui::prelude::*;
+use bevy_cobweb::prelude::*;
 
 use crate::prelude::*;
 use common::prelude::*;
@@ -32,12 +34,44 @@ impl<'a>  Builder<'a> for EntityBuilder<'a> {
     }
 }
 
-pub trait BaseBuilder<'a>: Builder<'a> {
-    fn dynamic_view(mut self, prompt: String) -> Self {
+impl<'a> UiReactEntityCommandsExt for EntityBuilder<'a> {
+    fn insert_reactive<T: ReactComponent>(&mut self, component: T) -> &mut Self {
+        self.get_commands().insert_reactive(component);
+        self
+    }
+    
+    fn insert_derived<T: ApplyLoadable>(&mut self, value: T) -> &mut Self {
+        todo!()
+    }
+    
+    fn on_event<T: Send + Sync + 'static>(&mut self) -> OnEventExt<'_, T> {
+        todo!()
+    }
+    
+    fn despawn_on_event<T: Send + Sync + 'static>(&mut self) -> &mut Self {
+        todo!()
+    }
+    
+    fn despawn_on_broadcast<T: Send + Sync + 'static>(&mut self) -> &mut Self {
+        todo!()
+    }
+    
+    fn update_on<M, C, T, R>(&mut self, triggers: T, reactor: R) -> &mut Self
+    where
+        C: IntoSystem<(), (), M> + Send + Sync + 'static,
+        T: ReactionTriggerBundle,
+        R: FnOnce(Entity) -> C {
+        self.get_commands().update_on(triggers, reactor);
+        self
+    }
+}
+
+pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
+    fn dynamic_view(&mut self, prompt: String) -> &mut Self {
         self.insert(DynamicView { prompt: prompt })
     }
     
-    fn stylized_image(mut self, is_horizontal: bool, color: Color, image: &str) -> Self {
+    fn stylized_image(&mut self, is_horizontal: bool, color: Color, image: &str) -> &mut Self {
         if is_horizontal {
             self.get_commands().insert(WidthLessThan { is_visible: false, width: 600.0 });
         } else {
@@ -83,7 +117,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
 
-    fn on_click_event<E: Event + std::clone::Clone>(mut self, event: E) -> Self {
+    fn on_click_event<E: Event + std::clone::Clone>(&mut self, event: E) -> &mut Self {
         self.on_click(CommandFunc::new(
             move |command| {
                 let event = event.clone();
@@ -95,7 +129,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn by_empathic_title(mut self, brightness: f32, size: f32) -> Self {
+    fn by_empathic_title(&mut self, brightness: f32, size: f32) -> &mut Self {
         self.expand_width().h_list().padding(Vec4::splat(HALF_SMALL_SPACE*size)).with_children(|parent| {
             //parent.child().label("by".to_string(), DEFAULT_FONT_SIZE*size, Color::rgb(brightness, brightness, brightness), Anchor::MiddleLeft, true);
             //parent.child().fixed_width(7.5*size);
@@ -109,7 +143,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
 
-    fn on_click(mut self, on_click: CommandFunc) -> Self {
+    fn on_click(&mut self, on_click: CommandFunc) -> &mut Self {
         self.upsert(|comp: &mut Button|{}).insert(
             OnClick {
                 func: on_click
@@ -117,7 +151,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
     
-    fn on_submit(mut self, on_submit: SubmitFunc) -> Self {
+    fn on_submit(&mut self, on_submit: SubmitFunc) -> &mut Self {
         self.insert(
             OnSubmit {
                 func: on_submit
@@ -125,7 +159,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind<T: Default + Reflect>(mut self) -> Self {
+    fn bind<T: Default + Reflect>(&mut self) -> &mut Self {
         self.insert(
             AutoBindable {
                 value: Box::<T>::new(Default::default())
@@ -133,7 +167,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_property_with_func(mut self, entity: Entity, property_name: &str, entity_func: SetPropertyFunc) -> Self {
+    fn bind_property_with_func(&mut self, entity: Entity, property_name: &str, entity_func: SetPropertyFunc) -> &mut Self {
         self.insert(
             AutoBindableProperty {
                 entity: entity,
@@ -144,14 +178,14 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn panel_dark_image_button(mut self, image: String) -> Self {
+    fn panel_dark_image_button(&mut self, image: String) -> &mut Self {
         self.panel()
         .with_children(|parent| {
             parent.child().dark_image_button(image, None);
         })
     }
 
-    fn panel(mut self) -> Self {
+    fn panel(&mut self) -> &mut Self {
         self.insert((
             Control {
                 Padding: Vec4::splat(SMALL_SPACE),
@@ -169,7 +203,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn bind_component_property(mut self, entity: Entity, component_name: &str, property_name: &str) -> Self {
+    fn bind_component_property(&mut self, entity: Entity, component_name: &str, property_name: &str) -> &mut Self {
         self.insert(
             AutoBindableProperty {
                 entity: entity,
@@ -180,7 +214,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_property(mut self, entity: Entity, property_name: &str) -> Self {
+    fn bind_property(&mut self, entity: Entity, property_name: &str) -> &mut Self {
         self.insert(
             AutoBindableProperty {
                 entity: entity,
@@ -191,7 +225,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_path(mut self, path: Vec<&str>, entity_func: SetPropertyFunc) -> Self {
+    fn bind_path(&mut self, path: Vec<&str>, entity_func: SetPropertyFunc) -> &mut Self {
         self.insert(
             PropertyBinder {
                 property_path_parts: path.iter().map(|x| x.to_string()).collect(),
@@ -201,7 +235,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_path_list(mut self, path: Vec<&str>, create_entity_func: CreateEntityFunc) -> Self {
+    fn bind_path_list(&mut self, path: Vec<&str>, create_entity_func: CreateEntityFunc) -> &mut Self {
         self.insert(
             PropertyBinder {
                 property_path_parts: path.iter().map(|x| x.to_string()).collect(),
@@ -211,7 +245,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_component_list(mut self, source_entity: Entity, component_name: &str, property_name: &str, create_entity_func: CreateEntityFunc) -> Self {
+    fn bind_component_list(&mut self, source_entity: Entity, component_name: &str, property_name: &str, create_entity_func: CreateEntityFunc) -> &mut Self {
         self.insert(
             AutoBindableList {
                 entity: source_entity,
@@ -221,7 +255,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_list(mut self, source_entity: Entity, property_name: &str, create_entity_func: CreateEntityFunc) -> Self {
+    fn bind_list(&mut self, source_entity: Entity, property_name: &str, create_entity_func: CreateEntityFunc) -> &mut Self {
         self.insert(
             AutoBindableList {
                 entity: source_entity,
@@ -244,19 +278,19 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 */
 
-    fn router(mut self) -> Self {
+    fn router(&mut self) -> &mut Self {
         self.insert(
             Router { ..default() }
         )
     }
 
-    fn route(mut self, name: &str) -> Self {
+    fn route(&mut self, name: &str) -> &mut Self {
         self.insert(
             Route { name: name.to_string() }
         )
     }
 
-    fn large_space(mut self, image: String) -> Self {
+    fn large_space(&mut self, image: String) -> &mut Self {
         self.insert((
             Control {
                 fixed_width: MEDIUM_LARGE,
@@ -275,7 +309,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn scale_on_hover(mut self) -> Self {
+    fn scale_on_hover(&mut self) -> &mut Self {
         let entity = self.id();
         self.upsert(|comp: &mut Button| {}).upsert(|comp: &mut InteractState| {}).bind_property_with_func(entity, "is_hovering",
         SetPropertyFunc::new(move|commands, _entity, reflect| {
@@ -290,7 +324,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     // TODO: Rework to select multiple objects in a list and run actions on them
     // CSS: outline: darkorange, ouline-width: 4px, outline-style: solid 
 
-    fn selectable(mut self) -> Self {
+    fn selectable(&mut self) -> &mut Self {
         let entity = self.id();
         self.upsert(|comp: &mut Button| {}).upsert(|comp: &mut InteractState| {}).bind_property_with_func(entity, "is_clicking",
         SetPropertyFunc::new(move|commands, _entity, reflect| {
@@ -302,7 +336,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         }))
     }
 
-    fn mini_group(mut self) -> Self {
+    fn mini_group(&mut self) -> &mut Self {
         self.insert((
             Control {
                 fixed_width: MEDIUM_LARGE,
@@ -338,7 +372,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
 
-    fn mini_group_avatar_image(self, image: String, border_radius: Vec4) -> Self {
+    fn mini_group_avatar_image(&mut self, image: String, border_radius: Vec4) -> &mut Self {
         self.insert((
             Control {
                 fixed_width: MEDIUM_LARGE / 2.0,
@@ -350,25 +384,25 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn mini_image(self, image: String) -> Self {
+    fn mini_image(&mut self, image: String) -> &mut Self {
         self.image(image).fixed_size(MEDIUM_LARGE / 2.0)
     }
 
-    fn medium_image(self, image: String) -> Self {
+    fn medium_image(&mut self, image: String) -> &mut Self {
         self.image(image).fixed_size(MEDIUM_LARGE / 1.5)
     }
 
-    fn large_image(self, image: String) -> Self {
+    fn large_image(&mut self, image: String) -> &mut Self {
         self.image(image).fixed_size(MEDIUM_LARGE)
     }
 
-    fn image(self, image: String) -> Self {
+    fn image(&mut self, image: String) -> &mut Self {
         self.insert((
             ImageRect { image, ..default() },
         ))
     }
 
-    fn entity_with_children<F>(mut self, f: F) -> Self
+    fn entity_with_children<F>(&mut self, f: F) -> &mut Self
     where
         F: FnOnce(Entity, &mut ChildBuilder<'_>),
     {
@@ -379,7 +413,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self
     }
 
-    fn with_children<F>(mut self, f: F) -> Self
+    fn with_children<F>(&mut self, f: F) -> &mut Self
     where
         F: FnOnce(&mut ChildBuilder<'_>),
     {
@@ -387,7 +421,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self
     }
 
-    fn stone_slice(mut self) -> Self {
+    fn stone_slice(&mut self) -> &mut Self {
         self.insert(ImageRect {
             // StoneButton or GoldButton
             image: "assets/icons/GoldButton.png".to_string(),
@@ -398,7 +432,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
 
-    fn gem_slice(mut self) -> Self {
+    fn gem_slice(&mut self) -> &mut Self {
         self.insert(
             ImageRect {
                 image: "assets/icons/GemButton2.png".to_string(),
@@ -410,7 +444,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn colored_button(mut self, label: String, color: Color) -> Self {
+    fn colored_button(&mut self, label: String, color: Color) -> &mut Self {
         self.insert((
             Control {
                 BorderRadius: Vec4::splat(10.0),
@@ -440,73 +474,73 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         }).scale_on_hover()
     }
     
-    fn h_list(mut self) -> Self {
+    fn h_list(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Container| {}).upsert(move |comp: &mut HList| {
             
         })
     }
 
-    fn font_size(mut self, size: f32) -> Self {
+    fn font_size(&mut self, size: f32) -> &mut Self {
         self.upsert(move |label: &mut BLabel| {
             label.font_size = size;
         })
     }
 
-    fn is_single_line(mut self) -> Self {
+    fn is_single_line(&mut self) -> &mut Self {
         self.upsert(move |label: &mut BLabel| {
             label.is_single_line = true;
         })
     }
 
-    fn stretch_for_list(mut self, stretch: bool) -> Self {
+    fn stretch_for_list(&mut self, stretch: bool) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.stretch = stretch;
         })
     }
 
-    fn h_wrapped(mut self, wrapped: bool) -> Self {
+    fn h_wrapped(&mut self, wrapped: bool) -> &mut Self {
         self.upsert(move |comp: &mut HList| {
             comp.wrapped = wrapped;
         })
     }
 
-    fn h_anchor(mut self, anchor: Anchor) -> Self {
+    fn h_anchor(&mut self, anchor: Anchor) -> &mut Self {
         self.upsert(move |comp: &mut HList| {
             comp.anchor = anchor;
         })
     }
 
-    fn v_anchor(mut self, anchor: Anchor) -> Self {
+    fn v_anchor(&mut self, anchor: Anchor) -> &mut Self {
         self.upsert(move |comp: &mut VList| {
             comp.anchor = anchor;
         })
     }
 
-    fn v_list(mut self) -> Self {
+    fn v_list(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Container| {}).upsert(move |comp: &mut VList| {})
     }
 
-    fn background_color(mut self, c: Color) -> Self {
+    fn background_color(&mut self, c: Color) -> &mut Self {
         self.upsert(move |comp: &mut BackgroundColor| comp.0 = c)
     }
 
-    fn small_padding(mut self) -> Self {
+    fn small_padding(&mut self) -> &mut Self {
         self.padding(Vec4::splat(SMALL_SPACE))
     }
 
-    fn padding(mut self, padding: Vec4) -> Self {
+    fn padding(&mut self, padding: Vec4) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.Padding = padding;
         })
     }
 
-    fn form(mut self) -> Self {
+    fn form(&mut self) -> &mut Self {
         self.insert(
             Form { ..default() }
         )
     }
 
-    fn input_field(mut self, placeholder: String, input_type: InputType) -> Self {
+    fn input_field(&mut self, placeholder: String, input_type: InputType) -> &mut Self {
         self.insert((
             Control {
                 ExpandWidth: true,
@@ -527,7 +561,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn input_area(mut self, placeholder: String, input_type: InputType) -> Self {
+    fn input_area(&mut self, placeholder: String, input_type: InputType) -> &mut Self {
         self.insert((
             Control {
                 ExpandWidth: true,
@@ -549,12 +583,12 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn insert(mut self, bundle: impl Bundle) -> Self {
+    fn insert(&mut self, bundle: impl Bundle) -> &mut Self {
         self.get_commands().insert(bundle);
         self
     }
 
-    fn labeled_line(mut self, text: String) -> Self {
+    fn labeled_line(&mut self, text: String) -> &mut Self {
         self.insert((
             Control {
                 ExpandWidth: true,
@@ -574,7 +608,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
 
-    fn label(mut self, text: String, font_size: f32, color: Color, alignment: Anchor, is_single_line: bool) -> Self {
+    fn label(&mut self, text: String, font_size: f32, color: Color, alignment: Anchor, is_single_line: bool) -> &mut Self {
         self.upsert(move |comp: &mut BLabel| {
             comp.alignment = alignment;
             comp.text = text;
@@ -584,7 +618,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
 
-    fn flexible_h_line(mut self) -> Self {
+    fn flexible_h_line(&mut self) -> &mut Self {
         self.insert((
             Control {
                 ExpandWidth: true,
@@ -596,7 +630,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn flexible_v_line(mut self) -> Self {
+    fn flexible_v_line(&mut self) -> &mut Self {
         self.insert((
             Control {
                 ExpandHeight: true,
@@ -609,7 +643,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
 
-    fn show_width_less_than(mut self, width: f32) -> Self {
+    fn show_width_less_than(&mut self, width: f32) -> &mut Self {
         self.insert(
             WidthLessThan {
                 is_visible: true,
@@ -618,7 +652,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }    
 
-    fn hide_width_less_than(mut self, width: f32) -> Self {
+    fn hide_width_less_than(&mut self, width: f32) -> &mut Self {
         self.insert(
             WidthLessThan {
                 is_visible: false,
@@ -627,7 +661,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }    
 
-    fn upsert<T, F>(mut self, f: F) -> Self where F: FnOnce(&mut T) + Send + 'static, T: Default + Component {
+    fn upsert<T, F>(&mut self, f: F) -> &mut Self where F: FnOnce(&mut T) + Send + 'static, T: Default + Component {
         self.get_commands().add(move |entity: Entity, world: &mut World| {
             let mut comp = world.get_mut::<T>(entity);
             if comp.is_none() {
@@ -649,50 +683,50 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self
     }
 
-    fn h_small_spacing(mut self) -> Self {
+    fn h_small_spacing(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut HList| {
             comp.spacing = SMALL_SPACE;
         })
     }
 
-    fn h_spacing(mut self, spacing: f32) -> Self {
+    fn h_spacing(&mut self, spacing: f32) -> &mut Self {
         self.upsert(move |comp: &mut HList| {
             comp.spacing = spacing;
         })
     }
 
-    fn v_small_spacing(mut self) -> Self {
+    fn v_small_spacing(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut VList| {
             comp.spacing = SMALL_SPACE;
         })
     }
 
-    fn v_spacing(mut self, spacing: f32) -> Self {
+    fn v_spacing(&mut self, spacing: f32) -> &mut Self {
         self.upsert(move |comp: &mut VList| {
             comp.spacing = spacing;
         })
     }
 
 
-    fn stretch(mut self) -> Self {
+    fn stretch(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.stretch();
         })
     }
 
-    fn rounded(mut self) -> Self {
+    fn rounded(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.BorderRadius = Vec4::splat(SMALL_SPACE);
         })
     }
 
-    fn pill(mut self) -> Self {
+    fn pill(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.BorderRadius = Vec4::splat(SMALL_SPACE*100.0);
         })
     }
 
-    fn on_show(mut self, on_click: CommandFunc) -> Self {
+    fn on_show(&mut self, on_click: CommandFunc) -> &mut Self {
         self.insert(
             OnShow {
                 func: Some(on_click),
@@ -701,7 +735,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_value(self, value: Box<dyn Reflect>) -> Self {
+    fn bind_value(&mut self, value: Box<dyn Reflect>) -> &mut Self {
         self.insert((
             AutoBindable {
                 value: value
@@ -710,66 +744,84 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn shadow(self) -> Self {
+    fn shadow(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Shadow| {
         })
     }
 
-    fn fixed_width(self, fixed_width: f32) -> Self {
+    fn fixed_width(&mut self, fixed_width: f32) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.fixed_width = fixed_width;
         })
     }
 
-    fn overflow(self, is_overflow: bool) -> Self {
+    fn overflow(&mut self, is_overflow: bool) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.IsOverflow = is_overflow;
         })
     }
 
-    fn fixed_size(self, size: f32) -> Self {
+    fn fixed_size(&mut self, size: f32) -> &mut Self {
         self.fixed_height(size).fixed_width(size)
     }
 
-    fn fixed_height(self, fixed_height: f32) -> Self {
+    fn fixed_height(&mut self, fixed_height: f32) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.fixed_height = fixed_height;
         })
     }
 
-    fn expand(self) -> Self {
+    fn expand(&mut self) -> &mut Self {
         self.expand_height().expand_width()
     }
 
-    fn expand_width(self) -> Self {
+    fn expand_width(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.ExpandWidth = true;
         })
     }
 
-    fn modify<F>(self, func: F) -> Self where F: FnOnce(Self) -> Self + Send + 'static {
+    fn ignore_layout(&mut self) -> &mut Self {
+        self.upsert(move |comp: &mut Control| {
+            comp.ignore_layout = true;
+        })
+    }
+
+    fn use_blur(&mut self) -> &mut Self {
+        self.upsert(move |comp: &mut Control| {
+            comp.use_blur = true;
+        })
+    }
+
+    fn z_index(&mut self, z_index: u32) -> &mut Self {
+        self.upsert(move |comp: &mut Control| {
+            comp.z_index = Some(z_index);
+        })
+    }
+
+    fn modify<F>(&mut self, func: F) -> &mut Self where F: FnOnce(&mut Self) -> &mut Self + Send + 'static {
         func(self)
     } 
 
-    fn expand_height(self) -> Self {
+    fn expand_height(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.ExpandHeight = true;
         })
     }    
 
-    fn is_visible(self, is_visible: bool) -> Self {
+    fn is_visible(&mut self, is_visible: bool) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
             comp.is_visible = is_visible;
         })
     }    
 
-    fn align_text(self, alignment: Anchor) -> Self {
+    fn align_text(&mut self, alignment: Anchor) -> &mut Self {
         self.upsert(move |comp: &mut BLabel| {
             comp.alignment = alignment;
         })
     }    
 
-    fn search(self) -> Self {
+    fn search(&mut self) -> &mut Self {
         self.insert((
             Control {
                 ExpandWidth: true,
@@ -807,7 +859,8 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             )).id();
             parent.child().v_list().bind_list(entity, "results", CreateEntityFunc::new(
                 |commands| {
-                    let mut child = commands.child().label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true).bind::<String>();
+                    let mut child = commands.child();
+                    child.label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true).bind::<String>();
                     let entity = child.id(); //.bind_property(entity, "").id()
                     child.bind_property(entity, "");
                     entity
@@ -819,7 +872,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
 
-    fn chat_typing(self, is_self: bool) -> Self {
+    fn chat_typing(&mut self, is_self: bool) -> &mut Self {
         // Main input field
         self.insert((
             Control {
@@ -854,17 +907,13 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
     
-    fn plus_button(
-        mut self,
-    ) -> Self {
+    fn plus_button(&mut self) -> &mut Self {
         self.fixed_size(MEDIUM_LARGE).h_list().small_padding().background_color(*GREEN).shadow().pill().with_children(|parent| {
             parent.child().image("assets/icons/Plus.png".to_string()).expand();
         })
     }
 
-    fn medium_plus_button(
-        self,
-    ) -> Self {
+    fn medium_plus_button(&mut self) -> &mut Self {
         self.fixed_height(MEDIUM).fixed_width(MEDIUM).h_list().with_children(|parent| {
             parent.child().pill().fixed_height(MEDIUM-SMALL_SPACE).fixed_width(MEDIUM-SMALL_SPACE).insert((
                 Shadow {},
@@ -887,10 +936,10 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
     
     fn dark_image_button(
-        self,
+        &mut self,
         image: String,
         on_click: Option<CommandFunc>,
-    ) -> Self {
+    ) -> &mut Self {
         let _image = image;
         self.insert((
             Control {
@@ -921,9 +970,9 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
     fn medium_dark_image_button(
-        self,
+        &mut self,
         image: String
-    ) -> Self {
+    ) -> &mut Self {
         self.insert((
             Control {
                 BorderRadius: Vec4::splat((SMALL as f32) / 2.0),
@@ -943,9 +992,9 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
     fn image_button(
-        mut self,
+        &mut self,
         image: String
-    ) -> Self {
+    ) -> &mut Self {
         self.insert((
             Control {
                 BorderRadius: Vec4::splat((SMALL as f32) / 2.0),
@@ -966,9 +1015,9 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
     
     fn slider(
-        self,
+        &mut self,
         percent: f64
-    ) -> Self {
+    ) -> &mut Self {
         let mut fill_entity: Option<Entity> = None;
         self.insert((
             Control { ExpandWidth: true, fixed_height: SMALL_SPACE, BorderRadius: Vec4::splat(SMALL_SPACE/2.0), Padding: Vec4::new(0.0, 0.0, 0.0, 0.0), ..default() },
@@ -986,7 +1035,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn stylized_title(self, text: String) -> Self {
+    fn stylized_title(&mut self, text: String) -> &mut Self {
         self.insert((
             Control {
                 Padding: Vec4::new(0.0, 0.0, 0.0, 0.0),
@@ -1022,10 +1071,10 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
     fn text_button(
-        self,
+        &mut self,
         label: String,
         color: Color
-    ) -> Self {
+    ) -> &mut Self {
         self.insert((
             Control {
                 BorderRadius: Vec4::splat(10.0),
@@ -1065,7 +1114,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     // See for improving security: https://advancedweb.hu/how-to-secure-the-cognito-login-flow-with-a-state-nonce-and-pkce/
     // Official documentation: https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html
     #[cfg(all(target_arch = "wasm32"))]
-    fn google_button(self) -> Self {
+    fn google_button(&mut self) -> &mut Self {
         let origin = get_page_origin().unwrap();
         self.link_image_button( 
             "Sign in with Google".to_string(), 
@@ -1076,16 +1125,16 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
     #[cfg(all(not(target_arch = "wasm32")))]
-    fn google_button(self) -> Self {
+    fn google_button(&mut self) -> &mut Self {
         self
     }
 
-    fn image_text_button(self,
+    fn image_text_button(&mut self,
         image: String,
         label: String,
         color: Color,
         font_size: f32
-    ) -> Self {
+    ) -> &mut Self {
         self.insert((
             Control {
                 Padding: Vec4::splat(15.0),
@@ -1135,7 +1184,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
     #[cfg(all(target_arch = "wasm32"))]
-    fn link_image_button(mut self, label: String, image: String, color: Color, url: String) -> Self {
+    fn link_image_button(&mut self, label: String, image: String, color: Color, url: String) -> &mut Self {
     
         let url = url.clone();
         

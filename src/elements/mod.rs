@@ -67,7 +67,10 @@ pub struct Control {
     pub Scale: f32,
     pub ScrollTop: f32,
     pub IsOverflow: bool,
-    pub stretch: bool
+    pub stretch: bool,
+    pub ignore_layout: bool,
+    pub use_blur: bool,
+    pub z_index: Option<u32>
 }
 
 #[derive(Component, Debug, Default)]
@@ -147,7 +150,10 @@ impl Default for Control {
             Scale: 1.0,
             ScrollTop: 0.0,
             IsOverflow: true,
-            stretch: false
+            stretch: false,
+            ignore_layout: false,
+            use_blur: false,
+            z_index: None
         }
     }
 }
