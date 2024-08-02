@@ -1115,7 +1115,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     // Official documentation: https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html
     #[cfg(all(target_arch = "wasm32"))]
     fn google_button(&mut self) -> &mut Self {
-        let origin = get_page_origin().unwrap();
+        let origin = get_page_origin().unwrap().replace("http://127.0.0.1", "http://localhost");
         self.link_image_button( 
             "Sign in with Google".to_string(), 
             "assets/icons/Google.png".to_string(), 
