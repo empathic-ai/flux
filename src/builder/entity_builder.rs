@@ -135,7 +135,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
             //parent.child().fixed_width(7.5*size);
             parent.child().insert((
                 ImageRect {
-                    image: "assets/icons/Empathic Title.png".to_string(),
+                    image: "assets/icons/Empathic Title.webp".to_string(),
                     brightness: brightness,
                     ..default()
                 },
@@ -1118,7 +1118,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
         let origin = get_page_origin().unwrap().replace("http://127.0.0.1", "http://localhost");
         self.link_image_button( 
             "Sign in with Google".to_string(), 
-            "assets/icons/Google.png".to_string(), 
+            "assets/icons/Google.webp".to_string(), 
             Color::WHITE, 
             format!("https://oauth.empathic.social/oauth2/authorize?identity_provider=Google&redirect_uri={origin}/login&response_type=CODE&client_id=5jjqc5ebkpavqdsiq5lh18uh6q")
         ).scale_on_hover()
