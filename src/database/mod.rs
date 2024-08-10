@@ -98,7 +98,6 @@ pub trait DB<T> {
     fn add_or_set(&mut self, id: Thing, record: T) -> Thing;
     fn add_or_get(&mut self, id: Thing, record: T) -> Mut<'_, T>;
     fn get(&mut self, id: Thing) -> Option<Mut<'_, T>>;
-    //fn iter_mut(&mut self) -> Vec<Mut<'_, T>>;
     fn iter(&mut self) -> Vec<(Thing, T)>;
 }
 
