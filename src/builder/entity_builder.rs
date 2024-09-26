@@ -118,15 +118,17 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     }
 
     fn on_click_event<E: Event + std::clone::Clone>(&mut self, event: E) -> &mut Self {
-        self.on_click(CommandFunc::new(
-            move |command| {
+        
+        self.on_click(|entity| {
+            move |mut commands: Commands| {
+            //move |command| {
                 let event = event.clone();
-                command.add(move |world: &mut World| {
+                commands.add(move |world: &mut World| {
                     log("Sending click event!");
                     world.send_event(event);
                 });
             }
-        ))
+        })
     }
 
     fn by_empathic_title(&mut self, brightness: f32, size: f32) -> &mut Self {
@@ -142,11 +144,28 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
             )).fixed_width(120.0*size).fixed_height(DEFAULT_FONT_SIZE*size);//.expand_height();
         })
     }
+/*
+    fn update_on<M, C, T, R>(&mut self, triggers: T, reactor: R) -> &mut Self
+    where
+        C: IntoSystem<(), (), M> + Send + Sync + 'static,
+        T: ReactionTriggerBundle,
+        R: FnOnce(Entity) -> C {
+        self.get_commands().update_on(triggers, reactor);
+        self
+    } */
 
-    fn on_click(&mut self, on_click: CommandFunc) -> &mut Self {
+    fn on_click<M, C, R>(&mut self, on_click: R) -> &mut Self 
+    where
+        C: IntoSystem<(), (), M> + Send + Sync + 'static,
+        R: FnOnce(Entity) -> C, {
+
+        let id = self.id();
+        let callback = (on_click)(id);
+
+        let syscommand = self.get_commands().commands().spawn_system_command(callback);
         self.upsert(|comp: &mut Button|{}).insert(
             OnClick {
-                func: on_click
+                func: syscommand
             }
         )
     }
@@ -165,6 +184,15 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                 value: Box::<T>::new(Default::default())
             }
         )
+    }
+
+    fn bind_value<T: Default + Reflect>(&mut self, value: T) -> &mut Self {
+        self.insert((
+            AutoBindable {
+                value: Box::<T>::new(value)
+            },
+            BindableChanged {}
+        ))
     }
 
     fn bind_property_with_func(&mut self, entity: Entity, property_name: &str, entity_func: SetPropertyFunc) -> &mut Self {
@@ -302,10 +330,13 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
             Button { ..default() },
             InteractState { ..default() }
             //Shadow {}
-        )).rounded().scale_on_hover().on_click(
-            CommandFunc::new(move |commands: &mut Commands| {
+        )).rounded().scale_on_hover().on_click(|entity| {
+            |mut commands: Commands| {
+            }
+        }
+            //CommandFunc::new(move |commands: &mut Commands| {
                 //bevy_web::set_route("lobby".to_string());
-            })
+            //})
         )
     }
 
@@ -733,15 +764,6 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                 was_visible: false
             }
         )
-    }
-
-    fn bind_value(&mut self, value: Box<dyn Reflect>) -> &mut Self {
-        self.insert((
-            AutoBindable {
-                value: value
-            },
-            BindableChanged {}
-        ))
     }
 
     fn shadow(&mut self) -> &mut Self {

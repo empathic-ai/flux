@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::ComponentId;
-use bevy::ecs::system::EntityCommands;
+use bevy::ecs::system::{EntityCommands, SystemId};
 use bevy::prelude::*;
 use bevy::reflect::TypeInfo::Struct;
 use bevy::reflect::{TypeRegistry, ReflectMut, ReflectRef};
@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::{any::Any, sync::Arc};
 use std::any::TypeId;
 use common::prelude::*;
+use bevy_cobweb::prelude::*;
 
 #[derive(Debug, Clone, Default, Component, Reflect)]
 pub struct UserMessage {
@@ -97,7 +98,7 @@ pub struct BindableChanged {
 
 #[derive(Clone, Component)]
 pub struct OnClick {
-    pub func: CommandFunc
+    pub func: SystemCommand
 }
 
 #[derive(Clone, Component)]
