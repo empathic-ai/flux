@@ -79,7 +79,18 @@ impl Display for Thing {
 #[derive(Resource)]
 pub struct DBConfig {
     #[cfg(not(target_arch = "xtensa"))]
-    pub db: Surreal<Any>
+    pub db: Surreal<Any>,
+    pub id_mappings: HashMap<Thing, Entity>
+}
+
+impl DBConfig {
+    pub fn get_entity(&self, id: &Thing) -> Option<&Entity> {
+        self.id_mappings.get(id)
+    }
+
+    pub fn insert_entity(&mut self, id: Thing, entity: Entity) {
+        self.id_mappings.insert(id, entity);
+    }
 }
 
 #[derive(Resource, Default)]
