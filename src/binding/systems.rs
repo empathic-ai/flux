@@ -140,7 +140,9 @@ pub fn propogate_forms(
                         let item = item.clone_value();
                         commands.entity(entity).add_child(child).add(move |id: Entity, world: &mut World| {
                             if let Some(mut bindable_struct) = world.entity_mut(child).get_mut::<AutoBindable>() {
-                                Bindable::set(bindable_struct.as_mut(), item);
+                                Bindable::set(bindable_struct.as_mut(), item.clone_value());
+                                
+                                info!("Set value for list element: {:?}", item);
                             }
                             //if let Some(mut bindable_property) = world.entity_mut(child).get_mut::<AutoBindableProperty>() {
                                 // TODO: run separate code

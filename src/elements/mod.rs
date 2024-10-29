@@ -2,7 +2,7 @@ mod interact_state;
 
 pub use interact_state::*;
 use crate::prelude::*;
-use bevy::utils::HashMap;
+use std::collections::HashMap;
 use bevy::prelude::*;
 
 use std::clone::Clone;

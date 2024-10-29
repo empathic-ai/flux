@@ -1202,7 +1202,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                     ..default()
                 },
             ));
-        }).scale_on_hover()
+        })//.scale_on_hover()
     }
 
     #[cfg(all(target_arch = "wasm32"))]
