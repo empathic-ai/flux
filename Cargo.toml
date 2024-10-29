@@ -22,6 +22,7 @@ surrealdb = { version = "1.5.0", default-features = false, features = ["protocol
 
 bevy_cobweb_ui = "0.1.0"
 bevy_cobweb = "0.10.1"
+bevy-async-ecs = { git = "https://github.com/Catchawink/bevy-async-ecs.git", branch = "wasm_fix" }
 
 # blake3 = { version = "1.5.1", features = ["pure"] }
 # my-workspace-hack = { version = "0.1", path = "../../../my-workspace-hack" }
