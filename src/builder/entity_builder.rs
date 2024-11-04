@@ -195,12 +195,12 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
         ))
     }
 
-    fn bind_property_with_func(&mut self, entity: Entity, property_name: &str, entity_func: SetPropertyFunc) -> &mut Self {
+    fn bind_property_with_func(&mut self, entity: Option<Entity>, property_name: &str, entity_func: SetPropertyFunc) -> &mut Self {
         self.insert(
             AutoBindableProperty {
                 entity: entity,
                 component_name: "*".to_string(),
-                property_name: property_name.to_string(),
+                property_path: Some(property_name.to_string()),
                 entity_func: Some(entity_func)
             }
         )
@@ -231,23 +231,34 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
         ))
     }
 
-    fn bind_component_property(&mut self, entity: Entity, component_name: &str, property_name: &str) -> &mut Self {
+    fn bind_component(&mut self, entity: Option<Entity>, component_name: &str) -> &mut Self {
         self.insert(
             AutoBindableProperty {
                 entity: entity,
                 component_name: component_name.to_string(),
-                property_name: property_name.to_string(),
+                property_path: None,
                 entity_func: None
             }
         )
     }
 
-    fn bind_property(&mut self, entity: Entity, property_name: &str) -> &mut Self {
+    fn bind_component_property(&mut self, entity: Option<Entity>, component_name: &str, property_name: &str) -> &mut Self {
+        self.insert(
+            AutoBindableProperty {
+                entity: entity,
+                component_name: component_name.to_string(),
+                property_path: Some(property_name.to_string()),
+                entity_func: None
+            }
+        )
+    }
+
+    fn bind_property(&mut self, entity: Option<Entity>, property_name: &str) -> &mut Self {
         self.insert(
             AutoBindableProperty {
                 entity: entity,
                 component_name: "*".to_string(),
-                property_name: property_name.to_string(),
+                property_path: Some(property_name.to_string()),
                 entity_func: None
             }
         )
@@ -342,7 +353,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
 
     fn scale_on_hover(&mut self) -> &mut Self {
         let entity = self.id();
-        self.upsert(|comp: &mut Button| {}).upsert(|comp: &mut InteractState| {}).bind_property_with_func(entity, "is_hovering",
+        self.upsert(|comp: &mut Button| {}).upsert(|comp: &mut InteractState| {}).bind_property_with_func(Some(entity), "is_hovering",
         SetPropertyFunc::new(move|commands, _entity, reflect| {
             if let Ok(value) = reflect.downcast::<bool>() {
                 commands.entity(entity).builder().upsert(move |comp: &mut Control| {
@@ -357,7 +368,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
 
     fn selectable(&mut self) -> &mut Self {
         let entity = self.id();
-        self.upsert(|comp: &mut Button| {}).upsert(|comp: &mut InteractState| {}).bind_property_with_func(entity, "is_clicking",
+        self.upsert(|comp: &mut Button| {}).upsert(|comp: &mut InteractState| {}).bind_property_with_func(Some(entity), "is_clicking",
         SetPropertyFunc::new(move|commands, _entity, reflect| {
             if let Ok(value) = reflect.downcast::<bool>() {
                 commands.entity(entity).builder().upsert(move |comp: &mut Control| {
@@ -883,8 +894,8 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                 |commands| {
                     let mut child = commands.child();
                     child.label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true).bind::<String>();
-                    let entity = child.id(); //.bind_property(entity, "").id()
-                    child.bind_property(entity, "");
+                    let entity = child.id(); //.bind_property(Some(entity), "").id()
+                    child.bind_property(Some(entity), "");
                     entity
                 }
             ));

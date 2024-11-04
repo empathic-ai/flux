@@ -20,6 +20,11 @@ pub struct DBRecord {
     pub id: Thing
 }
 
+// TODO: Create better mechanism for indicating a component is loading
+#[derive(Component, Debug, Default)]
+pub struct Loading {
+}
+
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "bevy", derive(Reflect))]
 pub struct TypedID<T> {
@@ -88,8 +93,9 @@ impl DBConfig {
         self.id_mappings.get(id)
     }
 
-    pub fn insert_entity(&mut self, id: Thing, entity: Entity) {
-        self.id_mappings.insert(id, entity);
+    pub fn insert_entity(&mut self, id: &Thing, entity: Entity) -> Entity{
+        self.id_mappings.insert(id.clone(), entity);
+        entity
     }
 }
 

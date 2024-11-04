@@ -96,6 +96,11 @@ pub struct Route {
     //pub is_on: bool,
 }
 
+#[derive(Event)]
+pub struct ShowView {
+    pub params: HashMap<String, String>
+}
+
 #[derive(Component, Debug)]
 pub struct ToggleImageButton {
     pub image_on: String,

@@ -203,55 +203,58 @@ pub fn propogate_forms(
     // TODO: simply forward property value to bindable_struct. All bindable_property's will do this
     for (property_entity, mut control, mut label, mut image_rect, mut slider, mut input_field, mut background_color, bindable_property, bindable) in set.p1().iter_mut() {
         
-        if let Some(field_values) = binding_queue.get(&bindable_property.entity) {
-            let property_name = bindable_property.property_name.clone();
-            if let Some(property_value) = field_values.get(&property_name) {
-                if bindable_property.property_name != "" && bindable.is_some() {
-                    let mut bindable = bindable.unwrap();
-
-                    bindable.set(property_value.clone_value());
-                    commands.add(move|world: &mut World| {
-                        if let Some(mut entity) = world.get_entity_mut(property_entity) {
-                            entity.insert(BindableChanged {});
-                        }
-                    });
-                } else if let Some(func) = &bindable_property.entity_func {
-                    func.call(&mut commands, property_entity, property_value.clone_value());
-                } else {
-                    if let Some(mut input_field) = input_field {
-                        if let Some(value) = property_value.downcast_ref::<String>() {
-                            input_field.text = value.clone();
-                        }
-                    }
-                    if let Some(mut background_color) = background_color {
-                        if let Some(value) = Color::from_reflect(property_value.as_reflect()) {
-                            background_color.0 = value.clone();
-                        }
-                    }
-                    if let Some(mut slider) = slider {
-                        if let Some(value) = property_value.downcast_ref::<f32>() {
-                            slider.percent = value.clone();
-                        }
-                    }
-                    if let Some(value) = property_value.downcast_ref::<Vec<u8>>() {
-                        log(property_name);
-                        log("IS BYTE ARRAY");
-                    }
-                    if let Some(value) = property_value.downcast_ref::<String>() {
-                        if let Some(mut label) = label {
-                            label.text = value.to_owned();
-                        }
-                        if let Some(mut image_rect) = image_rect {
-                            image_rect.image = value.to_owned();
-                        }
-                    }
-                    if let Some(mut control) = control {
-                        if let Some(value) = property_value.downcast_ref::<bool>() {
-                            let _value = value.clone();
-                            control.is_visible = value.to_owned();
-                            let property_name = bindable_property.property_name.clone();
-                            //console::log!(format!("SET BINDABLE VALUE: {property_name}"));
-                            //console::log!(format!("IS VISIBLE: {_value}"));
+        if let Some(entity) = bindable_property.entity {
+            if let Some(field_values) = binding_queue.get(&entity) {
+                if let Some(property_name) = bindable_property.property_path.as_ref() {
+                    if let Some(property_value) = field_values.get(property_name) {
+                        if bindable.is_some() {
+                            let mut bindable = bindable.unwrap();
+        
+                            bindable.set(property_value.clone_value());
+                            commands.add(move|world: &mut World| {
+                                if let Some(mut entity) = world.get_entity_mut(property_entity) {
+                                    entity.insert(BindableChanged {});
+                                }
+                            });
+                        } else if let Some(func) = &bindable_property.entity_func {
+                            func.call(&mut commands, property_entity, property_value.clone_value());
+                        } else {
+                            if let Some(mut input_field) = input_field {
+                                if let Some(value) = property_value.downcast_ref::<String>() {
+                                    input_field.text = value.clone();
+                                }
+                            }
+                            if let Some(mut background_color) = background_color {
+                                if let Some(value) = Color::from_reflect(property_value.as_reflect()) {
+                                    background_color.0 = value.clone();
+                                }
+                            }
+                            if let Some(mut slider) = slider {
+                                if let Some(value) = property_value.downcast_ref::<f32>() {
+                                    slider.percent = value.clone();
+                                }
+                            }
+                            if let Some(value) = property_value.downcast_ref::<Vec<u8>>() {
+                                log(property_name);
+                                log("IS BYTE ARRAY");
+                            }
+                            if let Some(value) = property_value.downcast_ref::<String>() {
+                                if let Some(mut label) = label {
+                                    label.text = value.to_owned();
+                                }
+                                if let Some(mut image_rect) = image_rect {
+                                    image_rect.image = value.to_owned();
+                                }
+                            }
+                            if let Some(mut control) = control {
+                                if let Some(value) = property_value.downcast_ref::<bool>() {
+                                    let _value = value.clone();
+                                    control.is_visible = value.to_owned();
+                                    let property_name = bindable_property.property_path.clone();
+                                    //console::log!(format!("SET BINDABLE VALUE: {property_name}"));
+                                    //console::log!(format!("IS VISIBLE: {_value}"));
+                                }
+                            }
                         }
                     }
                 }
@@ -270,18 +273,22 @@ pub fn process_form_on_submit(
     mut form_query: Query<(Entity, Option<&OnSubmit>)>,
 ) {
     for (input_field, bindable_property) in input_query.iter() {
-        if let Ok((entity, bindables)) = struct_query.get_mut(bindable_property.entity) {
-            for mut bindable in bindables {
-
-                let mut reflect = bindable.get();
-                let reflect_ref = reflect.reflect_mut();
+        if let Some(entity) = bindable_property.entity {
+            if let Ok((entity, bindables)) = struct_query.get_mut(entity) {
+                for mut bindable in bindables {
     
-                if let ReflectMut::Struct(value) = reflect_ref {
-                    if let Some(field) = value.field_mut(&bindable_property.property_name) {
-                        field.set(Box::new(input_field.text.clone()));
+                    let mut reflect = bindable.get();
+                    let reflect_ref = reflect.reflect_mut();
+        
+                    if let Some(property_path) = bindable_property.property_path.as_ref() {
+                        if let ReflectMut::Struct(value) = reflect_ref {
+                            if let Some(field) = value.field_mut(property_path) {
+                                field.set(Box::new(input_field.text.clone()));
+                            }
+                        }
                     }
+                    bindable.set(reflect);
                 }
-                bindable.set(reflect);
             }
         }
     }

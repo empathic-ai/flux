@@ -6,23 +6,27 @@ exclude = ["/examples"]
 
 [features]
 default = ["bevy"]
-bevy = []
+bevy = ["dep:bevy"]
 
 [dependencies]
-bevy = { version = "=0.14.0", default-features = false, features = ["bevy_ui", "bevy_asset"] }
+anyhow = { version = "1.0.71", default-features = false }
+
+[target.'cfg(not(target_arch = "xtensa"))'.dependencies]
 bevy-trait-query = { git = "https://github.com/dead-money/bevy-trait-query", branch = "bevy-0.14" }
 common = { git = "https://github.com/empathic-ai/common.git" }
 serde = { version = "1.0.149", features = ["derive"] }
 lazy_static = "1.4.0"
-anyhow = { version = "1.0.71", default-features = false }
 uuid = { version = "1.2.2", features = ["v4"] }
 
 prost = "0.12.1"
-surrealdb = { version = "1.5.0", default-features = false, features = ["protocol-ws"] }
+surrealdb = { version = "1.5.5", default-features = false, features = ["protocol-ws"] }
 
 bevy_cobweb_ui = "0.1.0"
 bevy_cobweb = "0.10.1"
 bevy-async-ecs = { git = "https://github.com/Catchawink/bevy-async-ecs.git", branch = "wasm_fix" }
 
-# blake3 = { version = "1.5.1", features = ["pure"] }
-# my-workspace-hack = { version = "0.1", path = "../../../my-workspace-hack" }
+[dependencies.bevy]
+version = "=0.14.0"
+default-features = false
+features = ["bevy_ui", "bevy_asset"] 
+optional = true
