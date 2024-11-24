@@ -1,32 +1,40 @@
 [package]
-name = "bevy_builder"
+name = "flux"
 version = "0.1.0"
 edition = "2021"
 exclude = ["/examples"]
 
 [features]
-default = ["bevy"]
-bevy = ["dep:bevy"]
+default = []
+bevy = ["dep:bevy", "bevy-trait-query", "bevy_cobweb", "bevy_cobweb_ui", "bevy-async-ecs"]
+dynamic_linking = ["bevy?/dynamic_linking"]
 
 [dependencies]
 anyhow = { version = "1.0.71", default-features = false }
-
-[target.'cfg(not(target_arch = "xtensa"))'.dependencies]
-bevy-trait-query = { git = "https://github.com/dead-money/bevy-trait-query", branch = "bevy-0.14" }
-common = { git = "https://github.com/empathic-ai/common.git" }
-serde = { version = "1.0.149", features = ["derive"] }
-lazy_static = "1.4.0"
-uuid = { version = "1.2.2", features = ["v4"] }
-
+prost-types = "0.12.1"
+tonic = { git = "https://github.com/Catchawink/tonic.git", branch = "hyper-1.0", default-features = false, features = ["prost", "codegen"] }
 prost = "0.12.1"
-surrealdb = { version = "1.5.5", default-features = false, features = ["protocol-ws"] }
+uuid = { version = "1.2.2", features = ["v4"] }
+serde = { version = "1.0.149", features = ["derive"] }
+documented = "0.1.2"
 
-bevy_cobweb_ui = "0.1.0"
-bevy_cobweb = "0.10.1"
-bevy-async-ecs = { git = "https://github.com/Catchawink/bevy-async-ecs.git", branch = "wasm_fix" }
+[target.'cfg(all(not(target_arch = "xtensa")))'.dependencies]
+common = { git = "https://github.com/empathic-ai/common.git" }
+lazy_static = "1.4.0"
+
+surrealdb = { version = "2.0.4", default-features = false, features = ["protocol-ws"] }
+
+bevy_cobweb = { version = "0.10.1", optional = true }
+bevy_cobweb_ui = { version = "0.1.0", optional = true }
+bevy-async-ecs = { git = "https://github.com/Catchawink/bevy-async-ecs.git", branch = "wasm_fix", optional = true }
+bevy-trait-query = { git = "https://github.com/dead-money/bevy-trait-query", branch = "bevy-0.14", optional = true }
 
 [dependencies.bevy]
 version = "=0.14.0"
 default-features = false
 features = ["bevy_ui", "bevy_asset"] 
 optional = true
+
+[build-dependencies]
+tonic-build = { version = "0.10.2", default-features = false, features = ["prost"] }
+prost-build = "0.12.3"

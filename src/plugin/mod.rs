@@ -1,15 +1,23 @@
+pub mod systems;
+pub use systems::*;
+
+use crate::prelude::*;
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::future::Future;
 use std::marker::PhantomData;
 use std::option::IterMut;
+use std::pin::Pin;
 
+use bevy_async_ecs::*;
 use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy::ecs::component::Tick;
+use bevy::reflect::Typed;
+
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use surrealdb::{engine::any::Any, Surreal};
 
-use bevy::ecs::component::Tick;
-use bevy::reflect::Typed;
 use uuid::Uuid;
 use anyhow::Result;
 use std::fmt::Display;
@@ -37,54 +45,11 @@ impl<T> TypedID<T> {
     
 }
 
-#[derive(Clone, PartialEq, ::prost::Message, Hash, Eq)]
-#[cfg_attr(feature = "bevy", derive(Reflect))]
-pub struct Thing {
-    #[prost(string, tag = "1")]
-    pub id: ::prost::alloc::string::String
-}
-
-impl Thing {
-    pub fn new() -> Self {
-        return Self { id: Uuid::new_v4().to_string() };
-    }
-
-    pub fn from(text: &str) -> Self {
-        return Self {
-            id: text.replace("-", "")
-        }
-    }
-}
-
-impl Serialize for Thing {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.id)
-    }
-}
-
-impl<'de> Deserialize<'de> for Thing {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let id = String::deserialize(deserializer)?;
-        Ok(Thing { id })
-    }
-}
-
-impl Display for Thing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.id, f)
-    }
-}
-
 #[derive(Resource)]
 pub struct DBConfig {
     #[cfg(not(target_arch = "xtensa"))]
     pub db: Surreal<Any>,
+    pub async_world: AsyncWorld,
     pub id_mappings: HashMap<Thing, Entity>
 }
 
@@ -112,6 +77,8 @@ pub struct DbQuery<'w, 's, T: Component + Reflect + Typed + Serialize + Deserial
 }
 
 pub trait DB<T> {
+    //fn add_or_set_async(&mut self, id: Thing, record: T) -> impl Future<Output = Thing>;
+    //fn add_or_get_async(&mut self, id: Thing, record: T) -> impl Future<Output = Thing>;//Mut<'_, T>;
     fn add_or_set(&mut self, id: Thing, record: T) -> Thing;
     fn add_or_get(&mut self, id: Thing, record: T) -> Mut<'_, T>;
     fn get(&mut self, id: Thing) -> Option<Mut<'_, T>>;
@@ -120,8 +87,60 @@ pub trait DB<T> {
 
 impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clone + Debug> DB<T> for DbQuery<'w, 's, T> {
 
+    /*
+    fn add_or_set_async(&mut self, id: Thing, record: T) -> Pin<Box<dyn Future<Output = Thing>>> {
+        if let Some((mut _record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == id) {
+            _record.set(Box::new(record));
+            return Box::pin(async move { id });
+            //record
+        } else {
+            let db = &self.db.db;
+            let contains = self.cache.cached_records.contains_key(&id.clone());
+            
+            return Box::pin(async move {
+                id
+            });
+            /*
+            let mut o = self.cache.cached_records.entry(id.clone()).or_insert_with(|| {
+                if let Some(record) = get_record::<T>(&db, id.clone()).unwrap() {
+                    (Tick::new(0), Tick::new(0), record)
+                } else {
+                    (Tick::new(0), Tick::new(0), record)
+                }
+            });
+            Mut::new(&mut o.2, &mut o.0, &mut o.1, Tick::new(0), Tick::new(0))
+            */
+        }
+    }*/
+
+    /*
+    fn add_or_get_async(&mut self, id: Thing, record: T) -> impl Future<Output = Thing> { //-> Mut<'_, T> {
+        let async_world = self.db.async_world;
+
+        let fut = async move {
+            let result = async_world.register_io_system(|query: Query<(&T)>| {
+                return id;
+            }).await.run(()).await.unwrap();
+        };
+
+        /*
+
+        */
+        fut
+    }
+    */
+
     fn add_or_set(&mut self, id: Thing, record: T) -> Thing {
-        let _ = self.add_or_get(id.clone(), record);
+        //let _ = self.add_or_get(id.clone(), record);
+        //id
+
+        if let Some((mut _record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == id) {
+            info!("Set record!");
+            _record.set(Box::new(record));
+        } else {
+            info!("Cached record!");
+            self.cache.cached_records.entry(id.clone()).insert_entry((Tick::new(0), Tick::new(0), record));
+        }
         id
     }
 

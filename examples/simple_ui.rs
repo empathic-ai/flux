@@ -1,7 +1,7 @@
 #[cfg(not(target_arch = "xtensa"))]
 mod main {
   use bevy::prelude::*;
-  use bevy_builder::prelude::*;
+  use flux::prelude::*;
 
   pub fn main() {
     App::new()

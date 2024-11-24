@@ -1,28 +1,44 @@
 #![allow(warnings)]
 #![allow(unused)]
+#![feature(let_chains)]
 
-#[cfg(not(target_arch = "xtensa"))]
-pub mod binding;
-#[cfg(not(target_arch = "xtensa"))]
-pub mod builder;
-#[cfg(not(target_arch = "xtensa"))]
-pub mod elements;
-#[cfg(not(target_arch = "xtensa"))]
-pub mod constants;
-#[cfg(not(target_arch = "xtensa"))]
-pub mod functions;
-#[cfg(not(target_arch = "xtensa"))]
-pub mod systems;
-#[cfg(not(target_arch = "xtensa"))]
-pub mod database;
-
-#[cfg(not(target_arch = "xtensa"))]
-pub mod prelude {
-	pub use crate::binding::*;
-	pub use crate::builder::*;
-	pub use crate::elements::*;
-	pub use crate::constants::*;
-	pub use crate::functions::*;
-	pub use crate::systems::*;
-	pub use crate::database::*;
+pub mod service {
+    tonic::include_proto!("flux");
 }
+
+pub use service::*;
+
+#[cfg(feature = "bevy")]
+pub mod binding;
+#[cfg(feature = "bevy")]
+pub mod builder;
+#[cfg(feature = "bevy")]
+pub mod elements;
+#[cfg(feature = "bevy")]
+pub mod constants;
+#[cfg(feature = "bevy")]
+pub mod functions;
+#[cfg(feature = "bevy")]
+pub mod plugin;
+pub mod types;
+//#[cfg(not(target_arch = "xtensa"))]
+//pub mod dynamic;
+
+pub mod prelude {
+	#[cfg(feature = "bevy")]
+	pub use crate::binding::*;
+	#[cfg(feature = "bevy")]
+	pub use crate::builder::*;
+	#[cfg(feature = "bevy")]
+	pub use crate::elements::*;
+	#[cfg(feature = "bevy")]
+	pub use crate::constants::*;
+	#[cfg(feature = "bevy")]
+	pub use crate::functions::*;
+	#[cfg(feature = "bevy")]
+	pub use crate::plugin::*;
+	pub use crate::types::*;
+	//pub use crate::dynamic::*;
+}
+
+

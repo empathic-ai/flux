@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package flux;
+
+service FluxService {
+    rpc Test (Thing) returns (Dynamic);
+}
+
+// This is a test comment.
+message Thing {
+    string id = 1;
+}
+
+// This is a test comment.
+message Dynamic {
+    string id = 1;
+}

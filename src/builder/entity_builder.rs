@@ -1,4 +1,4 @@
-use bevy::{ecs::system::EntityCommands, prelude::*, utils::default};
+use bevy::{ecs::system::{EntityCommands, RunSystemOnce}, prelude::*, utils::default};
 use bevy_cobweb_ui::prelude::*;
 use bevy_cobweb::prelude::*;
 
@@ -232,14 +232,21 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     }
 
     fn bind_component(&mut self, entity: Option<Entity>, component_name: &str) -> &mut Self {
-        self.insert(
-            AutoBindableProperty {
-                entity: entity,
-                component_name: component_name.to_string(),
-                property_path: None,
-                entity_func: None
-            }
-        )
+        let id = self.id().clone();
+        let component_name = component_name.to_string();
+        self.get_commands().commands().add(move |world: &mut World| {
+            world.run_system_once(move |mut bindings: Bindings| {
+                bindings.add_binding(Binding {
+                    source_entity: entity,
+                    source_component_name: component_name.clone(),
+                    target_entity: Some(id),
+                    target_component_name: component_name.clone(),
+                    target_property_path: None,
+                    entity_func: None
+                });
+            });
+        });
+        self
     }
 
     fn bind_component_property(&mut self, entity: Option<Entity>, component_name: &str, property_name: &str) -> &mut Self {

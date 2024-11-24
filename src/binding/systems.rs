@@ -2,17 +2,130 @@ use std::any::TypeId;
 
 use crate::prelude::*;
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::reflect::TypeInfo::Struct;
 use bevy::reflect::{TypeRegistry, ReflectMut, ReflectRef};
-use bevy::utils::HashMap;
+use bevy::utils::{HashMap, HashSet};
 use bevy_trait_query::All;
 
 use common::prelude::*;
+use surrealdb::sql::Uuid;
 
-#[derive(Resource)]
-pub struct ReferenceChanges {
-    pub changes: HashMap<TypeId, Vec<(Entity, String, String)>>
+#[derive(Resource, Default)]
+pub struct BindingsConfig {
+    pub source_bindings: HashMap<Entity, HashSet<Entity>>,
+    pub target_bindings: HashMap<Entity, HashSet<Entity>>,
+    //pub bindings: HashMap<Uuid, Binding>
+}
+
+impl BindingsConfig {
+    pub fn update_binding(&mut self, entity: Entity, binding: Binding) {
+        //let binding_id = Uuid::new_v4();
+        //self.bindings.insert(binding_id, binding.clone());
+        
+        if let Some(source_entity) = binding.source_entity {
+            self.source_bindings.entry(source_entity).or_default().insert(entity);
+        }
+
+        if let Some(target_entity) = binding.target_entity {
+            self.target_bindings.entry(target_entity).or_default().insert(entity);
+        }
+        //binding_id
+    }
+
+    pub fn get_target_bindings(&mut self, entity: Entity) -> &HashSet<Entity> {
+        self.target_bindings.entry(entity).or_insert(HashSet::new())
+    }
+
+    pub fn get_source_bindings(&mut self, entity: Entity) -> &HashSet<Entity> {
+        self.source_bindings.entry(entity).or_insert(HashSet::new())
+    }
+}
+
+#[derive(SystemParam)]
+pub struct Bindings<'w, 's> {
+    commands: Commands<'w, 's>,
+    config: ResMut<'w, BindingsConfig>,
+    pub bindings: Query<'w, 's, (Entity, Mut<'static, Binding>)>,
+    pub bindables: Query<'w, 's, (Entity, All<&'static mut dyn Bindable>)>
+}
+
+impl<'w, 's> Bindings<'w, 's> {
+
+    pub fn update(&mut self) {
+        for (entity, binding) in self.bindings.iter() {
+            if binding.is_added() || binding.is_changed() {
+                self.config.update_binding(entity, binding.clone());
+                Self::apply_binding_internal(&mut self.bindables, binding.clone());
+                //self.update_binding(entity, binding.clone());
+            }
+        }
+    }
+
+    pub fn apply_binding(&mut self, entity: Entity) {
+        let binding = self.get_binding(entity).clone();
+        Self::apply_binding_internal(&mut self.bindables, binding);
+    }
+
+    pub fn add_binding(&mut self, binding: Binding) {
+        self.commands.spawn(binding);
+    }
+    
+    pub fn update_binding(&mut self, entity: Entity, binding: Binding) {
+        self.config.update_binding(entity, binding.clone());
+        Self::apply_binding_internal(&mut self.bindables, binding);
+    }
+    
+    pub fn get_source_bindings(&mut self, entity: Entity) -> &HashSet<Entity> {
+        self.config.get_source_bindings(entity)
+    }
+
+    pub fn get_target_bindings(&mut self, entity: Entity) -> &HashSet<Entity> {
+        self.config.get_target_bindings(entity)
+    }
+
+    pub fn get_binding(&mut self, entity: Entity) -> Mut<'_, Binding> {
+        let (_, mut binding) = self.bindings.get_mut(entity).unwrap();
+        binding
+    }
+
+    fn apply_binding_internal(bindables: &mut Query<'w, 's, (Entity, All<&'static mut dyn Bindable>)>, binding: Binding) {
+        //let mut binding = self.get_binding(binding_id).clone();
+
+        if let Some(source_entity) = binding.source_entity && let Some(target_entity) = binding.target_entity {
+            let source_value = {
+                if let Ok((_, bindables)) = bindables.get(source_entity) {
+                    if let Some(bindable) = bindables.iter().find(|x| x.get().reflect_type_path() == binding.source_component_name) {
+                        Some(bindable.get().clone_value())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            if let Some(source_value) = source_value {
+                if let Ok((_, mut bindables)) = bindables.get_mut(target_entity) {
+                    if let Some(mut target_bindable) = bindables.iter_mut().find(|x| x.get().reflect_type_path() == binding.target_component_name) {
+                        info!("Applying binding to target. Binding component type: {}", binding.target_component_name);
+                        target_bindable.set(source_value);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Component, Clone)]
+pub struct Binding {
+    pub source_entity: Option<Entity>,
+    pub source_component_name: String,
+    pub target_entity: Option<Entity>,
+    pub target_component_name: String,
+    pub target_property_path: Option<String>,
+    pub entity_func: Option<SetPropertyFunc>
 }
 
 // TODO: rewrite to propogate bindings until a queue of all binding events is emptied

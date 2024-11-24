@@ -9,14 +9,14 @@ Create complex configurations of entities (scenes, UI layouts, etc.) using a str
 To add to your project, simply run:
 
 ```
-cargo add --git https://github.com/empathic-ai/bevy-builder.git
+cargo add --git https://github.com/empathic-ai/flux.git
 ```
 
 Within your app, you can use the builder like this:
 
 ```Rust
 use bevy::prelude::*;
-use bevy_builder::prelude::*;
+use flux::prelude::*;
 
 fn main() {
   App::new()
