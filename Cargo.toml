@@ -6,7 +6,7 @@ exclude = ["/examples"]
 
 [features]
 default = []
-bevy = ["dep:bevy", "bevy-trait-query", "bevy_cobweb", "bevy_cobweb_ui", "bevy-async-ecs"]
+bevy = ["dep:bevy", "flux_core/bevy", "bevy-trait-query", "bevy_cobweb", "bevy_cobweb_ui", "bevy-async-ecs"]
 dynamic_linking = ["bevy?/dynamic_linking"]
 
 [dependencies]

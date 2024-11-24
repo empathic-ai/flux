@@ -3,6 +3,8 @@
 #![feature(let_chains)]
 
 pub mod service {
+	use crate::prelude::*;
+	
     tonic::include_proto!("flux");
 }
 
@@ -25,6 +27,8 @@ pub mod types;
 //pub mod dynamic;
 
 pub mod prelude {
+	pub use flux_derive::*;
+	pub use flux_core::prelude::*;
 	#[cfg(feature = "bevy")]
 	pub use crate::binding::*;
 	#[cfg(feature = "bevy")]

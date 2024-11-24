@@ -2,11 +2,6 @@ use bevy::prelude::*;
 
 #[bevy_trait_query::queryable]
 #[reflect_trait]
-pub trait Reflectable: Reflect {
-}
-
-#[bevy_trait_query::queryable]
-#[reflect_trait]
 pub trait Bindable {
     fn get(&self) -> Box<dyn Reflect>;
     fn set(&mut self, value: Box<dyn Reflect>);
