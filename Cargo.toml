@@ -10,6 +10,9 @@ bevy = ["dep:bevy", "bevy-trait-query", "bevy_cobweb", "bevy_cobweb_ui", "bevy-a
 dynamic_linking = ["bevy?/dynamic_linking"]
 
 [dependencies]
+flux_core = { git = "https://github.com/empathic-ai/flux-core.git", default-features = false }
+flux_derive = { git = "https://github.com/empathic-ai/flux-derive.git", default-features = false }
+
 anyhow = { version = "1.0.71", default-features = false }
 prost-types = "0.12.1"
 tonic = { git = "https://github.com/Catchawink/tonic.git", branch = "hyper-1.0", default-features = false, features = ["prost", "codegen"] }
