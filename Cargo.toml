@@ -6,7 +6,7 @@ exclude = ["/examples"]
 
 [features]
 default = []
-bevy = ["dep:bevy", "flux_core/bevy", "bevy-trait-query", "bevy_cobweb", "bevy_cobweb_ui", "bevy-async-ecs"]
+bevy = ["dep:bevy", "flux_core/bevy", "bevy-trait-query", "bevy-async-ecs"]
 dynamic_linking = ["bevy?/dynamic_linking"]
 
 [dependencies]
@@ -14,9 +14,10 @@ flux_core = { git = "https://github.com/empathic-ai/flux-core.git", default-feat
 flux_derive = { git = "https://github.com/empathic-ai/flux-derive.git", default-features = false }
 
 anyhow = { version = "1.0.71", default-features = false }
-prost-types = "0.12.1"
-tonic = { git = "https://github.com/Catchawink/tonic.git", branch = "hyper-1.0", default-features = false, features = ["prost", "codegen"] }
-prost = "0.12.1"
+prost-types = "0.13.3"
+tonic = { version = "0.12.3", default-features = false, features = ["prost", "codegen"] }
+# tonic = { git = "https://github.com/Catchawink/tonic.git", branch = "hyper-1.0", default-features = false, features = ["prost", "codegen"] }
+prost = { version = "0.13.3" }
 uuid = { version = "1.2.2", features = ["v4"] }
 serde = { version = "1.0.149", features = ["derive"] }
 documented = "0.1.2"
@@ -25,15 +26,16 @@ documented = "0.1.2"
 common = { git = "https://github.com/empathic-ai/common.git" }
 lazy_static = "1.4.0"
 
-surrealdb = { version = "2.0.4", default-features = false, features = ["protocol-ws"] }
+surrealdb = { version = "2.1.4", default-features = false, features = ["protocol-ws"] }
 
-bevy_cobweb = { version = "0.10.1", optional = true }
-bevy_cobweb_ui = { version = "0.1.0", optional = true }
-bevy-async-ecs = { git = "https://github.com/Catchawink/bevy-async-ecs.git", branch = "wasm_fix", optional = true }
-bevy-trait-query = { git = "https://github.com/dead-money/bevy-trait-query", branch = "bevy-0.14", optional = true }
+# bevy_cobweb = { version = "0.10.1", optional = true }
+# bevy_cobweb_ui = { version = "0.5.1", default-features = false, optional = true }
+bevy-async-ecs = { version = "=0.7.0", optional = true }
+bevy-trait-query = { version = "0.7.0", optional = true }
+nameof = "1.2.2"
 
 [dependencies.bevy]
-version = "=0.14.0"
+version = "=0.15.0"
 default-features = false
 features = ["bevy_ui", "bevy_asset"] 
 optional = true

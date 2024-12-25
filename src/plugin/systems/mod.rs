@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::{any::Any, sync::Arc};
 use std::any::TypeId;
 use common::prelude::*;
-use bevy_cobweb::prelude::*;
+//use bevy_cobweb::prelude::*;
 
 #[derive(Debug, Clone, Default, Component, Reflect)]
 pub struct UserMessage {
@@ -33,7 +33,7 @@ impl Bindable for UsageView {
         Box::new(self.clone())
     }
     fn set(&mut self, value: Box<dyn Reflect>) {
-        self.apply(value.as_reflect());
+        self.apply(value.as_partial_reflect());
     }
 }
 
@@ -98,18 +98,18 @@ pub struct BindableChanged {
 
 #[derive(Clone, Component)]
 pub struct OnClick {
-    pub func: SystemCommand
+    pub system: SystemId
 }
 
 #[derive(Clone, Component)]
 pub struct OnShow {
-    pub func: Option<CommandFunc>,
+    pub system: Option<SystemId>,
     pub was_visible: bool
 }
 
 impl Default for OnShow {
     fn default() -> Self {
-        Self { func: None, was_visible: false }
+        Self { system: None, was_visible: false }
     }
 }
 
@@ -127,7 +127,7 @@ impl Bindable for SearchInput {
         Box::new(self.clone())
     }
     fn set(&mut self, value: Box<dyn Reflect>) {
-        self.apply(value.as_reflect());
+        self.apply(value.as_partial_reflect());
     }
 }
 
@@ -358,8 +358,8 @@ impl<'w, 's> CommandBuilder<'w, 's> {
     }
 }
 
-pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &Window)>,
-    mut responsive_element_query: Query<(Entity, &mut Control, Option<&WidthLessThan>, Option<&HideOnHeightLessThan>), Without<Window>>) {
+pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &BWindow)>,
+    mut responsive_element_query: Query<(Entity, &mut Control, Option<&WidthLessThan>, Option<&HideOnHeightLessThan>), Without<BWindow>>) {
 
     let mut changed_size: Option<Vec2> = None;
     for (entity, control, window) in window_query.iter() {

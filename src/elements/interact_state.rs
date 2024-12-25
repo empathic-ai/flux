@@ -15,6 +15,6 @@ impl Bindable for InteractState {
         Box::new(self.clone())
     }
     fn set(&mut self, value: Box<dyn Reflect>) {
-        self.apply(value.as_reflect());
+        self.apply(value.as_partial_reflect());
     }
 }

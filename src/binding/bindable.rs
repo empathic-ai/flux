@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use crate::prelude::*;
 
 #[bevy_trait_query::queryable]
 #[reflect_trait]
@@ -12,17 +13,7 @@ pub struct AutoBindable {
     pub value: Box<dyn Reflect>
 }
 
-impl AutoBindable {
-}
-
-impl Bindable for AutoBindable {
-    fn get(&self) -> Box<dyn Reflect> {
-        self.value.clone_value()
-    }
-
-    fn set(&mut self, value: Box<dyn Reflect>) {
-        //let v = value.as_ref();
-        self.value = value;
-        //
-    }
+#[derive(Component, Reflect, Reactive)]
+pub struct ReactiveView {
+    pub id: Thing
 }

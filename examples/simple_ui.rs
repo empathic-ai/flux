@@ -1,4 +1,4 @@
-#[cfg(not(target_arch = "xtensa"))]
+#[cfg(feature = "bevy")]
 mod main {
   use bevy::prelude::*;
   use flux::prelude::*;
@@ -20,6 +20,6 @@ mod main {
 }
 
 fn main() {
-  #[cfg(not(target_arch = "xtensa"))]
+  #[cfg(feature = "bevy")]
   main::main();
 }

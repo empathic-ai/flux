@@ -13,7 +13,7 @@ pub struct Slider {
     pub percent: f32
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Reflect, PartialEq, Eq)]
 pub enum Anchor {
     UpperLeft = 0,
     UpperCenter = 1,
@@ -31,6 +31,7 @@ pub struct GoogleLoginButton {
 }
 
 #[derive(bevy::prelude::Component, Debug, Default)]
+#[require(Control)]
 pub struct BluetoothButton {
     pub is_initialized: bool
 }
@@ -41,7 +42,7 @@ pub struct StripePaymentElement {
     pub SubmitEntity: Entity
 }
 
-#[derive(bevy::prelude::Component, Debug)]
+#[derive(bevy::prelude::Component, Debug, Reflect, Reactive)]
 pub struct Control {
     pub name: String,
     pub Type: String,
@@ -208,7 +209,7 @@ pub struct BButton {
     pub on_click: Option<CommandFunc>,
 }
 
-#[derive(Default)]
+#[derive(Default, Reflect)]
 pub enum InputType {
     #[default]
     Default,
@@ -216,14 +217,17 @@ pub enum InputType {
     PhoneNumber
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect, Reactive)]
 pub struct InputField {
     pub text: String,
     pub placeholder: String,
     pub input_type: InputType,
     pub font_size: f32,
+    #[reflect(ignore)]
     pub on_submitted: Option<CommandFunc>,
+    #[reflect(ignore)]
     pub on_focused: Option<CommandFunc>,
+    #[reflect(ignore)]
     pub on_unfocused: Option<CommandFunc>,
     pub alignment: Anchor
 }
@@ -265,7 +269,7 @@ impl Default for HList {
 #[derive(Component, Debug, Default)]
 pub struct Shadow {}
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect, Reactive)]
 pub struct ImageRect {
     pub image: String,
     pub data: Vec<u8>,
@@ -300,8 +304,8 @@ pub struct VScroll {}
 #[derive(Component, Debug)]
 pub struct IFrame {}
 
-#[derive(Component, Debug)]
-pub struct BLabel {
+#[derive(Component, Debug, Reflect, Reactive)]
+pub struct TextLabel {
     pub text: String,
     pub font: String,
     pub font_size: f32,
@@ -316,9 +320,9 @@ pub struct BLabel {
     pub line_height: Option<f32>
 }
 
-impl Default for BLabel {
+impl Default for TextLabel {
     fn default() -> Self {
-        BLabel {
+        TextLabel {
             text: "".to_string(),
             font: "Arial".to_string(),
             font_size: DEFAULT_FONT_SIZE,

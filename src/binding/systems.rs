@@ -1,21 +1,26 @@
-use std::any::TypeId;
+use std::any::{Any, TypeId};
 
 use crate::prelude::*;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::reflect::TypeInfo::Struct;
-use bevy::reflect::{TypeRegistry, ReflectMut, ReflectRef};
+use bevy::reflect::{DynamicEnum, ParsedPath, Reflect, ReflectFromPtr, ReflectMut, ReflectRef, Struct, TypeRegistry};
 use bevy::utils::{HashMap, HashSet};
 use bevy_trait_query::All;
 
 use common::prelude::*;
 use surrealdb::sql::Uuid;
 
+#[derive(Event, Clone)]
+pub struct OnChange {
+    pub entity: Entity
+}
+
 #[derive(Resource, Default)]
 pub struct BindingsConfig {
     pub source_bindings: HashMap<Entity, HashSet<Entity>>,
     pub target_bindings: HashMap<Entity, HashSet<Entity>>,
+    pub type_registry: TypeRegistry
     //pub bindings: HashMap<Uuid, Binding>
 }
 
@@ -24,14 +29,26 @@ impl BindingsConfig {
         //let binding_id = Uuid::new_v4();
         //self.bindings.insert(binding_id, binding.clone());
         
-        if let Some(source_entity) = binding.source_entity {
-            self.source_bindings.entry(source_entity).or_default().insert(entity);
+        match binding {
+            Binding::Path(binding) => {
+                if let Some(source_entity) = binding.source_entity {
+                    self.source_bindings.entry(source_entity).or_default().insert(entity);
+                }
+        
+                if let Some(target_entity) = binding.target_entity {
+                    self.target_bindings.entry(target_entity).or_default().insert(entity);
+                }
+            }
+            Binding::List(binding) => {
+                if let Some(source_entity) = binding.source_entity {
+                    self.source_bindings.entry(source_entity).or_default().insert(entity);
+                }
+        
+                if let Some(target_entity) = binding.target_entity {
+                    self.target_bindings.entry(target_entity).or_default().insert(entity);
+                }
+            },
         }
-
-        if let Some(target_entity) = binding.target_entity {
-            self.target_bindings.entry(target_entity).or_default().insert(entity);
-        }
-        //binding_id
     }
 
     pub fn get_target_bindings(&mut self, entity: Entity) -> &HashSet<Entity> {
@@ -48,35 +65,91 @@ pub struct Bindings<'w, 's> {
     commands: Commands<'w, 's>,
     config: ResMut<'w, BindingsConfig>,
     pub bindings: Query<'w, 's, (Entity, Mut<'static, Binding>)>,
-    pub bindables: Query<'w, 's, (Entity, All<&'static mut dyn Bindable>)>
+    pub reactives: Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>
 }
 
 impl<'w, 's> Bindings<'w, 's> {
 
     pub fn update(&mut self) {
+        let mut changed_components = HashSet::new();
+
         for (entity, binding) in self.bindings.iter() {
             if binding.is_added() || binding.is_changed() {
                 self.config.update_binding(entity, binding.clone());
-                Self::apply_binding_internal(&mut self.bindables, binding.clone());
+                Self::apply_binding_internal(&mut self.commands, &mut self.config.type_registry, &mut self.reactives, binding.clone(), &mut changed_components);
                 //self.update_binding(entity, binding.clone());
+            }
+        }
+
+        let mut changed_bindings = HashSet::new();
+        for (entity, reactives) in self.reactives.iter() {
+            for reactive in reactives.iter() {
+                if reactive.is_added() || reactive.is_changed() {
+                    let component_name = reactive.reflect_short_type_path();
+
+                    //info!("Reactive added or changed: <{}>.{}", entity, component_name);
+
+                    for binding_id in self.config.get_source_bindings(entity).iter() {
+                        let (_, binding) = self.bindings.get_mut(binding_id.clone()).unwrap();
+                        if binding.get_source_component_name() == component_name {
+                            changed_bindings.insert(binding_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for entity in changed_bindings.iter() {
+            self.apply_binding(entity.clone(), &mut changed_components);
+        }
+
+        while changed_components.len() > 0 {
+            let mut changed_bindings = HashSet::new();
+            for (entity, component_name) in changed_components.iter() {
+                for binding_id in self.config.get_source_bindings(entity.clone()).iter() {
+                    let (_, binding) = self.bindings.get_mut(binding_id.clone()).unwrap();
+                    if binding.get_source_component_name() == component_name.clone() {
+                        //info!("Reactive added or changed: <{}>.{}", entity, component_name);
+                    
+                        changed_bindings.insert(binding_id.clone());
+                    }
+                }
+            }
+            changed_components.clear();
+            
+            for entity in changed_bindings.iter() {
+                self.apply_binding(entity.clone(), &mut changed_components);
             }
         }
     }
 
-    pub fn apply_binding(&mut self, entity: Entity) {
+    pub fn apply_binding(&mut self, entity: Entity, changed_reactives: &mut HashSet<(Entity, String)>) {
         let binding = self.get_binding(entity).clone();
-        Self::apply_binding_internal(&mut self.bindables, binding);
+
+        Self::apply_binding_internal(&mut self.commands, &mut self.config.type_registry, &mut self.reactives, binding, changed_reactives);
     }
 
     pub fn add_binding(&mut self, binding: Binding) {
         self.commands.spawn(binding);
     }
     
-    pub fn update_binding(&mut self, entity: Entity, binding: Binding) {
-        self.config.update_binding(entity, binding.clone());
-        Self::apply_binding_internal(&mut self.bindables, binding);
-    }
+    //pub fn update_binding(&mut self, entity: Entity, binding: Binding) {
+    //    self.config.update_binding(entity, binding.clone());
+    //    Self::apply_binding_internal(&mut self.commands, &mut self.reactives, binding);
+    //}
     
+    /*
+    pub fn get_source_bindings_with_component<'a>(bindings: &'a mut Query<'w, 's, (Entity, Mut<'static, Binding>), ()>, config: &'a mut BindingsConfig, entity: Entity, component_name: String) -> Box<dyn Iterator<Item = &'a Mut<'a, Binding>> + 'a> where 'w: 'a, 's: 'a {
+        //let bindings = &'a mut self.bindings;
+        let component_name = component_name.clone();
+
+        Box::new(config.get_source_bindings(entity).iter().map(|entity| {
+                    let (_, binding) = bindings.get_mut(entity.clone()).unwrap();
+                    binding
+                }).filter(move |binding| {
+                    (binding.get_source_component_name() == component_name)
+                }))
+    } */
+
     pub fn get_source_bindings(&mut self, entity: Entity) -> &HashSet<Entity> {
         self.config.get_source_bindings(entity)
     }
@@ -90,42 +163,297 @@ impl<'w, 's> Bindings<'w, 's> {
         binding
     }
 
-    fn apply_binding_internal(bindables: &mut Query<'w, 's, (Entity, All<&'static mut dyn Bindable>)>, binding: Binding) {
-        //let mut binding = self.get_binding(binding_id).clone();
-
-        if let Some(source_entity) = binding.source_entity && let Some(target_entity) = binding.target_entity {
-            let source_value = {
-                if let Ok((_, bindables)) = bindables.get(source_entity) {
-                    if let Some(bindable) = bindables.iter().find(|x| x.get().reflect_type_path() == binding.source_component_name) {
-                        Some(bindable.get().clone_value())
+    fn get_source_value(reactives: &mut Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>, entity : Entity, component_name: String, property_path: Option<String>) -> Option<Box<dyn PartialReflect>> {
+        if let Ok((_, reactives)) = reactives.get(entity) {
+            if let Some(reactive) = reactives.iter().find(|x| x.reflect_short_type_path() == &component_name) {
+                if let Some(property_path) = property_path {
+                    if let ReflectRef::Struct(reactive) = reactive.reflect_ref() {
+                        if let Ok(property) = reactive.try_as_reflect().unwrap().reflect_path(&ParsedPath::parse(&property_path).unwrap()) {
+                            Some(property.clone_value())
+                        } else {
+                            //warn!("Failed to get source value. Failed to get field in reactive with property '{}'!", property_path);
+                            None
+                        }
                     } else {
+                        //warn!("Failed to get source value. Reactive isn't a struct!");
                         None
                     }
                 } else {
-                    None
+                    Some(reactive.clone_value())
                 }
-            };
-
-            if let Some(source_value) = source_value {
-                if let Ok((_, mut bindables)) = bindables.get_mut(target_entity) {
-                    if let Some(mut target_bindable) = bindables.iter_mut().find(|x| x.get().reflect_type_path() == binding.target_component_name) {
-                        info!("Applying binding to target. Binding component type: {}", binding.target_component_name);
-                        target_bindable.set(source_value);
-                    }
-                }
+            } else {
+                //warn!("Failed to get source value. No reactive found in entity <{}> with component name '{}'!", entity, component_name);
+                None
             }
+        } else {
+            //warn!("Failed to get source value. No reactives found in entity <{}>! Component name: {}.", entity, component_name);
+            None
+        }
+    }
+
+    fn apply_binding_internal(commands: &mut Commands<'w, 's>, type_registry: &mut TypeRegistry, reactives: &mut Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>, binding: Binding, changed_components: &mut HashSet<(Entity, String)>) {
+        //let mut binding = self.get_binding(binding_id).clone();
+
+        let source_component_name = binding.get_source_component_name();
+  
+        match binding {
+            Binding::Path(binding) => {
+                if let Some(source_entity) = binding.source_entity && let Some(target_entity) = binding.target_entity {
+     
+                    if let Some(mut source_value) = Self::get_source_value(reactives, source_entity, binding.source_component_name.clone(), binding.source_property_path.clone()) {
+                        if let Ok((_, mut reactives)) = reactives.get_mut(target_entity) {
+
+                            let target_component_name = binding.target_component_name.clone();
+                            if let Some(mut target_bindable) = reactives.iter_mut().find(|x| x.reflect_short_type_path() == target_component_name) {
+                          
+                                let mut target_value = if let Some(property_path) = binding.target_property_path.clone() {
+                                    
+                                    let mut path = target_bindable.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()).unwrap();
+                                        path
+                                    } else {
+                                        target_bindable.as_partial_reflect_mut()
+                                    };
+
+                                if target_value.is_dynamic() {
+                                    let target_type_name = target_value.reflect_short_type_path();
+                                    //info!("Target type: {}", target_type_name);
+                                    let type_registration = type_registry.get_with_short_type_path_mut(target_type_name).unwrap();
+    
+                                    let reflect_from_reflect = type_registration
+                                    .data::<ReflectFromReflect>()
+                                    .expect("`ReflectFromReflect` should be registered");
+    
+                                    let source_value = reflect_from_reflect
+                                    .from_reflect(source_value.as_ref())
+                                    .unwrap();
+                                    
+                                    if !target_value.reflect_partial_eq(source_value.as_partial_reflect()).unwrap_or(false) {
+                                        //info!("Applying path binding: {}. Value: {:?}", binding.to_string(), source_value);
+
+                                        //info!("Value: {:?}", source_value);
+            
+                                        target_value.try_as_reflect_mut().unwrap().set(source_value);
+
+                                        //info!("New value: {:?}", target_value);
+                                        
+                                        changed_components.insert((target_entity, target_component_name));
+                                    }
+                                } else {
+                                   
+                                    //info!("Source type: {}", source_value.reflect_short_type_path());
+                                    //info!("Target type: {}", target_value.reflect_short_type_path());
+
+                                    let is_option = if let Some(type_info) = source_value.get_represented_type_info() {
+                                        type_info.is::<Option<String>>()
+                                    } else {
+                                        false
+                                    };
+                                    
+                                    let is_option = source_value.represents::<Option<String>>();
+                                    let different_types = source_value.reflect_short_type_path() != target_value.reflect_short_type_path();
+                                    
+                                    if is_option && different_types && let ReflectRef::Enum(dyn_enum) = source_value.reflect_ref() {
+                                        if let Some(value) = dyn_enum.field_at(0) {
+                                            source_value = value.clone_value();
+                                        }
+                                    }
+            
+                                    if !target_value.reflect_partial_eq(source_value.as_partial_reflect()).unwrap_or(false) {
+                                        //info!("Applying path binding: {}. Value: {:?}", binding.to_string(), source_value);
+
+                                        //info!("Value: {:?}", source_value);
+            
+                                        target_value.apply(source_value.as_ref());
+
+                                        //info!("New value: {:?}", target_value);
+                                        
+                                        changed_components.insert((target_entity, target_component_name));
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        //info!("Attempted to apply path binding but failed to get source value: {}", binding.to_string());
+                    }
+                } else {
+                    //info!("Attempted to apply path binding but target or source is missing: {}", binding.to_string());
+                }
+            },
+            Binding::List(binding) => {
+                if let Some(source_entity) = binding.source_entity && let Some(target_entity) = binding.target_entity {
+ 
+                    if let Some(source_value) = Self::get_source_value(reactives, source_entity, binding.source_component_name.clone(), binding.source_property_path.clone()) {
+                        //if let Ok((_, mut reactives, children)) = reactives.get_mut(target_entity) {
+
+                            if let ReflectRef::Array(value) = source_value.reflect_ref() {
+                            }
+                            if let ReflectRef::List(value) = source_value.reflect_ref() {
+                                //info!("Applying list binding: {}. Value: {:?}", binding.to_string(), source_value);
+
+                                commands.entity(target_entity.clone()).despawn_descendants();
+
+                                for item in value.iter() {
+                                    let mut item = item;
+    
+                                    let child = binding.create_entity_func.as_ref().unwrap().call(commands);
+                                    let source_value = item.clone_value();
+                                    commands.entity(target_entity).add_child(child);
+
+                                    let target_component_name = binding.target_component_name.clone();
+                                    let target_property_path = binding.target_property_path.clone();
+
+                                    //.add(move |id: Entity, world: &mut World| {
+                                    commands.queue(move |world: &mut World| {
+                                        let bindings = world.resource::<BindingsConfig>();
+                                        let type_registry = &bindings.type_registry;
+
+                                        let type_registration = type_registry.get_with_short_type_path(&target_component_name).expect(&format!("Failed to get type info for component named '{}'!", target_component_name));
+
+                                        let reflect_from_ptr = type_registration.data::<ReflectFromPtr>().unwrap().clone();
+
+                                        let component_id = world.components().get_id(type_registration.type_id()).unwrap();
+
+                                        if let Ok(mut component) = world.entity_mut(child).get_mut_by_id(component_id) {
+                                            let mut component = unsafe { reflect_from_ptr.as_reflect_mut(component.into_inner()) };
+                                            let mut target_value = if let Some(property_path) = target_property_path {
+                                        
+                                                    // TODO: run separate code
+                                                    let mut path =component.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()).unwrap();
+                                                    path
+                                                } else {
+                                                    // TODO: Automatically insert entity if it doesn't yet exist (currently must be explicitly added in create function)
+                                                    //world.entity_mut(child).insert_by_id(component_id, component)
+                                                    component.as_partial_reflect_mut()
+                                                };
+                                                                                    
+                                            if !source_value.reflect_partial_eq(target_value.as_partial_reflect()).unwrap_or(false) {
+                                                //info!("Applying list binding for element. Value: {:?}", source_value);
+                                                target_value.apply(source_value.as_partial_reflect());
+                                            }
+                                        }
+                                    });
+                                        
+                                        //| world: &mut World| {
+
+                                            /*
+
+                                            */
+                                        //});
+
+                                            //if let Some(mut bindable_property) = world.entity_mut(child).get_mut::<AutoBindableProperty>() {
+                                                // TODO: run separate code
+                                            //}
+                                            //if !is_value {
+                                            //world.entity_mut(child).insert(BindableChanged {});
+                                        //});
+                                }
+                                //commands.entity(entity).remove::<AutoBindableList>();
+                            }
+                        //}
+                    } else {
+                        //info!("Attempted to apply binding but failed to get source value.");
+                    }
+                } else {
+                    //info!("Attempted to apply binding but target or source is missing.");
+                }
+            },
+        }
+    }
+}
+
+fn system(world: &mut World) {
+
+}
+
+#[derive(Component, Clone)]
+pub enum Binding {
+    Path(PathBinding),
+    List(ListBinding)
+}
+
+impl Binding {
+    pub fn set_source(&mut self, entity: Option<Entity>) {
+        match self {
+            Binding::Path(binding) => {
+                binding.source_entity = entity
+            },
+            Binding::List(binding) => {
+                binding.source_entity = entity
+            },
+        }
+    }
+
+    pub fn get_source_component_name(&self) -> String {
+        match self {
+            Binding::Path(binding) => {
+                binding.source_component_name.clone()
+            },
+            Binding::List(binding) => {
+                binding.source_component_name.clone()
+            },
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Binding::Path(binding) => {
+                binding.to_string()
+            },
+            Binding::List(binding) => {
+                binding.to_string()
+            },
         }
     }
 }
 
 #[derive(Component, Clone)]
-pub struct Binding {
+pub struct PathBinding {
     pub source_entity: Option<Entity>,
     pub source_component_name: String,
+    pub source_property_path: Option<String>,
     pub target_entity: Option<Entity>,
     pub target_component_name: String,
     pub target_property_path: Option<String>,
     pub entity_func: Option<SetPropertyFunc>
+}
+
+impl PathBinding {
+    pub fn to_string(&self) -> String {
+        format!("<{}>.{}{} -> <{}>.{}{}", entity_to_string(&self.source_entity), self.source_component_name, path_to_string(&self.source_property_path), entity_to_string(&self.target_entity), self.target_component_name, path_to_string(&self.target_property_path))
+    }
+}
+
+fn path_to_string(property_path: &Option<String>) -> String {
+    if let Some(property_path) = property_path {
+        format!(".{}", property_path)
+    } else {
+        "".to_string()
+    }
+}
+
+fn entity_to_string(entity: &Option<Entity>) -> String {
+    if let Some(entity) = entity {
+        entity.to_string()
+    } else {
+        "?".to_string()
+    }
+}
+
+#[derive(Component, Clone)]
+pub struct ListBinding {
+    pub source_entity: Option<Entity>,
+    pub source_component_name: String,
+    pub source_property_path: Option<String>,
+    pub target_entity: Option<Entity>,
+    pub target_component_name: String,
+    pub target_property_path: Option<String>,
+    pub create_entity_func: Option<CreateEntityFunc>
+}
+
+impl ListBinding {
+    pub fn to_string(&self) -> String {
+        format!("<{}>.{}{} -> <{}>.{}{}", entity_to_string(&self.source_entity), self.source_component_name, path_to_string(&self.source_property_path), entity_to_string(&self.target_entity), self.target_component_name, path_to_string(&self.target_property_path))
+    }
 }
 
 // TODO: rewrite to propogate bindings until a queue of all binding events is emptied
@@ -145,32 +473,35 @@ pub fn propogate_forms(
     //mut label_query: Query<(&mut Label, &AutoBindableProperty)>,
     mut set: ParamSet<(
         // 0: Query of bindable components that have recently changed
-        Query<(Entity, All<&dyn Bindable>), Or<(With<BindableChanged>, Changed<AutoBindable>)>>,
-        Query<(Entity, Option<&mut Control>, Option<&mut BLabel>, Option<&mut ImageRect>, Option<&mut Slider>, Option<&mut InputField>, Option<&mut BackgroundColor>, &AutoBindableProperty, Option<&mut AutoBindable>)>,
+        Query<(Entity, All<&dyn Reactive>)>,
+        Query<(Entity, Option<&mut Control>, Option<&mut TextLabel>, Option<&mut ImageRect>, Option<&mut Slider>, Option<&mut InputField>, Option<&mut BackgroundColor>, &AutoBindableProperty, Option<&mut AutoBindable>)>,
         Query<(Entity, &mut PropertyBinder)>,
+        Bindings
         // 4: Query of all bindable records
-        Query<(Entity, &DBRecord, All<&dyn Bindable>)>
+        //Query<(Entity, &DBRecord, All<&dyn Reactive>)>
     )>,
     mut auto_bindable_list_query: Query<(Entity, &AutoBindableList, Option<&Children>)>,
     //form_query: Query<(Entity, &Form, Option<Changed<Form>>)>,
 ) {
-    let mut binding_queue = HashMap::<Entity, HashMap::<String, Box<dyn Reflect>>>::new();
+    //let mut binding_queue = HashMap::<Entity, HashMap::<String, Box<dyn Reflect>>>::new();
     
-    let records = set.p3().iter().map(|(entity, record, bindables)| {
-        (record, bindables.iter().next().unwrap().get())
-    });
+    //let records = set.p3().iter().map(|(entity, record, bindables)| {
+    //    (record, bindables.iter().next().unwrap())
+    //});
     
-    for (entity, bindables) in set.p0().iter() {//bindable_struct_query.iter() {
-        binding_queue.insert(entity, HashMap::<String, Box<dyn Reflect>>::new());
+    let mut changed_reactives = HashSet::new();
 
-        commands.entity(entity).remove::<BindableChanged>();
-        for bindable in bindables {
-            
+    for (entity, reactives) in set.p0().iter() {//bindable_struct_query.iter() {
+        //binding_queue.insert(entity, HashMap::<String, Box<dyn Reflect>>::new());
+
+        //commands.entity(entity).remove::<BindableChanged>();
+        for reactive in reactives.iter_changed() {
+            let component_name = reactive.into_inner().reflect_short_type_path().to_string();
+            changed_reactives.insert((entity.clone(), component_name));
             //if was_changed.is_some_and(|x| x) {
             //if let Some(chat_view) = form.as_any().downcast_ref::<DetailedChatView>() {
             //}
-            let reflect = bindable.get();
-            
+     
             //let mut field_values = HashMap::<String, Box<dyn Reflect>>::new();
 
             //console::log!("IS BINDABLE STRUCT".to_string());
@@ -190,8 +521,8 @@ pub fn propogate_forms(
                 }
             }
             */
-            
-            let reflect_ref = reflect.reflect_ref();
+            /*
+            let reflect_ref = reactive.reflect_ref();
             //if let Some(reflect) = form.as_any().downcast_ref::<&'static dyn Reflect>() {
                 //let reflect = Box::new(reflect);
             if let ReflectRef::Struct(value) = reflect_ref {
@@ -224,6 +555,31 @@ pub fn propogate_forms(
                     let value = value.clone_value();
                     field_values.insert("".to_string(), value);
                 }
+            }
+            */
+        }
+    }
+    /* 
+    let mut bindings = set.p3();
+    for (entity, component_name) in changed_reactives.iter() {
+
+        for binding_id in bindings.get_source_bindings(entity.clone()).clone() {
+            let binding = bindings.get_binding(binding_id).into_inner();
+            match binding {
+                Binding::Path(binding) => {
+                    if binding.source_component_name == component_name.to_string() {
+                        info!("Applying path binding. Source type: {}", component_name);
+        
+                        bindings.apply_binding(binding_id);
+                    }
+                }
+                Binding::List(binding) => {
+                    if binding.source_component_name == component_name.to_string() {
+                        info!("Applying list binding. Source type: {}", component_name);
+        
+                        bindings.apply_binding(binding_id);
+                    }
+                },
             }
         }
     }
@@ -269,7 +625,7 @@ pub fn propogate_forms(
             }
         }
     }
-
+   
     // TODO: Finish writing property binder
     // For reference: https://github.com/empathic-ai/altimit/blob/main/core/Core/Replication/PropertyBinder.cs
     for (property_entity, mut property_binder) in set.p2().iter_mut() {
@@ -324,7 +680,7 @@ pub fn propogate_forms(
                             let mut bindable = bindable.unwrap();
         
                             bindable.set(property_value.clone_value());
-                            commands.add(move|world: &mut World| {
+                            commands.queue(move|world: &mut World| {
                                 if let Some(mut entity) = world.get_entity_mut(property_entity) {
                                     entity.insert(BindableChanged {});
                                 }
@@ -374,9 +730,8 @@ pub fn propogate_forms(
             }
         }
     }
+         */
 }
-
-
 
 pub fn process_form_on_submit(
     mut commands: Commands,
@@ -396,7 +751,7 @@ pub fn process_form_on_submit(
                     if let Some(property_path) = bindable_property.property_path.as_ref() {
                         if let ReflectMut::Struct(value) = reflect_ref {
                             if let Some(field) = value.field_mut(property_path) {
-                                field.set(Box::new(input_field.text.clone()));
+                                field.apply(input_field.text.clone().as_partial_reflect());
                             }
                         }
                     }

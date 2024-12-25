@@ -1,9 +1,10 @@
 use bevy::{ecs::system::{EntityCommands, RunSystemOnce}, prelude::*, utils::default};
-use bevy_cobweb_ui::prelude::*;
-use bevy_cobweb::prelude::*;
+//use bevy_cobweb_ui::prelude::*;
+//use bevy_cobweb::prelude::*;
 
 use crate::prelude::*;
 use common::prelude::*;
+use nameof::{name_of, name_of_type};
 
 pub struct EntityBuilder<'a> {
     entity_commands: EntityCommands<'a>,
@@ -34,14 +35,11 @@ impl<'a>  Builder<'a> for EntityBuilder<'a> {
     }
 }
 
+/* 
 impl<'a> UiReactEntityCommandsExt for EntityBuilder<'a> {
     fn insert_reactive<T: ReactComponent>(&mut self, component: T) -> &mut Self {
         self.get_commands().insert_reactive(component);
         self
-    }
-    
-    fn insert_derived<T: ApplyLoadable>(&mut self, value: T) -> &mut Self {
-        todo!()
     }
     
     fn on_event<T: Send + Sync + 'static>(&mut self) -> OnEventExt<'_, T> {
@@ -64,9 +62,18 @@ impl<'a> UiReactEntityCommandsExt for EntityBuilder<'a> {
         self.get_commands().update_on(triggers, reactor);
         self
     }
-}
+    
+    fn update<M, C: IntoSystem<UpdateId, (), M> + Send + Sync + 'static>(&mut self, reactor: C) -> &mut Self {
+        todo!()
+    }
+    
+    fn modify(&mut self, callback: impl FnMut(EntityCommands) + Send + Sync + 'static) -> &mut Self {
+        todo!()
+    }
+}*/
 
-pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
+// + UiReactEntityCommandsExt
+pub trait BaseBuilder<'a>: Builder<'a> {
     fn dynamic_view(&mut self, prompt: String) -> &mut Self {
         self.insert(DynamicView { prompt: prompt })
     }
@@ -123,7 +130,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
             move |mut commands: Commands| {
             //move |command| {
                 let event = event.clone();
-                commands.add(move |world: &mut World| {
+                commands.queue(move |world: &mut World| {
                     log("Sending click event!");
                     world.send_event(event);
                 });
@@ -162,10 +169,10 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
         let id = self.id();
         let callback = (on_click)(id);
 
-        let syscommand = self.get_commands().commands().spawn_system_command(callback);
+        let syscommand = self.get_commands().commands().register_system(callback);
         self.upsert(|comp: &mut Button|{}).insert(
             OnClick {
-                func: syscommand
+                system: syscommand
             }
         )
     }
@@ -178,20 +185,27 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
         )
     }
 
-    fn bind<T: Default + Reflect>(&mut self) -> &mut Self {
-        self.insert(
-            AutoBindable {
-                value: Box::<T>::new(Default::default())
-            }
-        )
+    fn bind<T: Default + Reflect + Component>(&mut self) -> &mut Self {
+        self.insert(T::default())
+            //AutoBindable {
+            //    value: Box::<T>::new(Default::default())
+            //}
+        //)
     }
 
-    fn bind_value<T: Default + Reflect>(&mut self, value: T) -> &mut Self {
+    fn bindable<T: Default + Reflect>(&mut self, value: T) -> &mut Self {
         self.insert((
             AutoBindable {
                 value: Box::<T>::new(value)
             },
-            BindableChanged {}
+        ))
+    }
+
+    fn reactive_view(&mut self, id: Option<Thing>) -> &mut Self {
+        self.insert((
+            ReactiveView {
+                id: id.unwrap_or_default()
+            },
         ))
     }
 
@@ -207,7 +221,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     }
 
     fn panel_dark_image_button(&mut self, image: String) -> &mut Self {
-        self.panel()
+        self.panel().h_list()
         .with_children(|parent| {
             parent.child().dark_image_button(image, None);
         })
@@ -221,11 +235,6 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                 is_visible: true,
                 ..default()
             },
-            Container { ..default() },
-            HList {
-                spacing: SMALL_SPACE,
-                ..default()
-            },
             Shadow {},
             BackgroundColor(Color::WHITE),
         ))
@@ -234,30 +243,42 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     fn bind_component(&mut self, entity: Option<Entity>, component_name: &str) -> &mut Self {
         let id = self.id().clone();
         let component_name = component_name.to_string();
-        self.get_commands().commands().add(move |world: &mut World| {
+        self.get_commands().commands().queue(move |world: &mut World| {
             world.run_system_once(move |mut bindings: Bindings| {
-                bindings.add_binding(Binding {
+                bindings.add_binding(Binding::Path(PathBinding {
                     source_entity: entity,
                     source_component_name: component_name.clone(),
+                    source_property_path: None,
                     target_entity: Some(id),
                     target_component_name: component_name.clone(),
                     target_property_path: None,
                     entity_func: None
-                });
+                }));
             });
         });
         self
     }
 
-    fn bind_component_property(&mut self, entity: Option<Entity>, component_name: &str, property_name: &str) -> &mut Self {
-        self.insert(
-            AutoBindableProperty {
-                entity: entity,
-                component_name: component_name.to_string(),
-                property_path: Some(property_name.to_string()),
-                entity_func: None
-            }
-        )
+    fn bind_component_property(&mut self, entity: Option<Entity>, source_component_name: &str, source_property_path: &str, target_component_name: &str, target_property_path: &str) -> &mut Self {
+        let id = self.id().clone();
+        let source_component_name = source_component_name.to_string();
+        let source_property_path = source_property_path.to_string();
+        let target_component_name = target_component_name.to_string();
+        let target_property_path = target_property_path.to_string();
+        self.get_commands().commands().queue(move |world: &mut World| {
+            world.run_system_once(move |mut bindings: Bindings| {
+                bindings.add_binding(Binding::Path(PathBinding {
+                    source_entity: entity,
+                    source_component_name: source_component_name.clone(),
+                    source_property_path: Some(source_property_path.clone()),
+                    target_entity: Some(id),
+                    target_component_name: target_component_name.clone(),
+                    target_property_path: Some(target_property_path.clone()),
+                    entity_func: None
+                }));
+            });
+        });
+        self
     }
 
     fn bind_property(&mut self, entity: Option<Entity>, property_name: &str) -> &mut Self {
@@ -301,14 +322,39 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
         )
     }
 
-    fn bind_list(&mut self, source_entity: Entity, property_name: &str, create_entity_func: CreateEntityFunc) -> &mut Self {
+    fn bind_list(&mut self, entity: Option<Entity>, component_name: &str, property_name: &str, target_component_name: &str, target_property_path: Option<&str>, create_entity_func: CreateEntityFunc) -> &mut Self {
+        let id = self.id().clone();
+        let component_name = component_name.to_string();
+        let property_name = property_name.to_string();
+        let target_component_name = target_component_name.to_string();
+        let target_property_path = if let Some(target_property_path) = target_property_path {
+            Some(target_property_path.to_string())
+        } else {
+            None
+        };
+
+        self.get_commands().commands().queue(move |world: &mut World| {
+            world.run_system_once(move |mut bindings: Bindings| {
+                bindings.add_binding(Binding::List(ListBinding {
+                    source_entity: entity,
+                    source_component_name: component_name.clone(),
+                    source_property_path: Some(property_name.clone()),
+                    target_entity: Some(id),
+                    target_component_name: target_component_name.clone(),
+                    target_property_path: target_property_path.clone(),
+                    create_entity_func: Some(create_entity_func.clone())
+                }));
+            });
+        });
+        self
+        /*
         self.insert(
             AutoBindableList {
                 entity: source_entity,
                 property_name: property_name.to_string(),
                 create_entity: Some(create_entity_func)
             }
-        )
+        )*/
     }
 /* 
     pub fn with_children_builder<F>(mut self, f: F) -> Self
@@ -512,7 +558,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                     ExpandWidth: true,
                     ..default()
                 },
-                BLabel {
+                TextLabel {
                     alignment: Anchor::MiddleCenter,
                     text: label,
                     is_single_line: true,
@@ -530,13 +576,13 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     }
 
     fn font_size(&mut self, size: f32) -> &mut Self {
-        self.upsert(move |label: &mut BLabel| {
+        self.upsert(move |label: &mut TextLabel| {
             label.font_size = size;
         })
     }
 
     fn is_single_line(&mut self) -> &mut Self {
-        self.upsert(move |label: &mut BLabel| {
+        self.upsert(move |label: &mut TextLabel| {
             label.is_single_line = true;
         })
     }
@@ -657,12 +703,12 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
         })
     }
 
-    fn label(&mut self, text: String, font_size: f32, color: Color, alignment: Anchor, is_single_line: bool) -> &mut Self {
-        self.upsert(move |comp: &mut BLabel| {
+    fn label(&mut self, text: String, font_size: f32, font_color: Color, alignment: Anchor, is_single_line: bool) -> &mut Self {
+        self.upsert(move |comp: &mut TextLabel| {
             comp.alignment = alignment;
             comp.text = text;
             comp.is_single_line = is_single_line;
-            comp.color = color;
+            comp.color = font_color;
             comp.font_size = font_size;
         })
     }
@@ -711,11 +757,11 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     }    
 
     fn upsert<T, F>(&mut self, f: F) -> &mut Self where F: FnOnce(&mut T) + Send + 'static, T: Default + Component {
-        self.get_commands().add(move |entity: Entity, world: &mut World| {
+        self.get_commands().queue(move |entity: Entity, world: &mut World| {
             let mut comp = world.get_mut::<T>(entity);
             if comp.is_none() {
                 comp = None;
-                if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
                     let x: T = std::default::Default::default();
                     entity_mut.insert(
                        x
@@ -775,10 +821,18 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
         })
     }
 
-    fn on_show(&mut self, on_click: CommandFunc) -> &mut Self {
-        self.insert(
+    fn on_show<M, C, R>(&mut self, on_click: R) -> &mut Self 
+    where
+        C: IntoSystem<(), (), M> + Send + Sync + 'static,
+        R: FnOnce(Entity) -> C, {
+
+        let id = self.id();
+        let callback = (on_click)(id);
+
+        let syscommand = self.get_commands().commands().register_system(callback);
+        self.upsert(|comp: &mut Control| {}).insert(
             OnShow {
-                func: Some(on_click),
+                system: Some(syscommand),
                 was_visible: false
             }
         )
@@ -856,7 +910,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     }    
 
     fn align_text(&mut self, alignment: Anchor) -> &mut Self {
-        self.upsert(move |comp: &mut BLabel| {
+        self.upsert(move |comp: &mut TextLabel| {
             comp.alignment = alignment;
         })
     }    
@@ -897,15 +951,16 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                     ..default()
                 }
             )).id();
-            parent.child().v_list().bind_list(entity, "results", CreateEntityFunc::new(
+            parent.child().v_list().bind_list(Some(entity), "", "results", "", None, CreateEntityFunc::new(
                 |commands| {
                     let mut child = commands.child();
-                    child.label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true).bind::<String>();
+                    child.label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true);//.bind::<String>();
                     let entity = child.id(); //.bind_property(Some(entity), "").id()
                     child.bind_property(Some(entity), "");
                     entity
                 }
             ));
+
             //let entity = child.id();
             //child.bind_property_with_func(entity, "Text", SetPropertyFunc::new(move|commands, _entity, reflect| {
             //}));
@@ -1082,7 +1137,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                 ExpandWidth: true,
                 ..default()
             },
-            BLabel {
+            TextLabel {
                 alignment: Anchor::MiddleCenter,
                 text,
                 //IsSingleLine: true,
@@ -1113,7 +1168,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     fn text_button(
         &mut self,
         label: String,
-        color: Color
+        background_color: Color
     ) -> &mut Self {
         self.insert((
             Control {
@@ -1126,7 +1181,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
             Container {},
             VList { ..default() },
             Shadow {},
-            BackgroundColor(color),
+            BackgroundColor(background_color),
         ))
         .with_children(|parent| {
             parent.spawn((
@@ -1135,11 +1190,11 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                     ExpandWidth: true,
                     ..default()
                 },
-                BLabel {
+                TextLabel {
                     alignment: Anchor::MiddleCenter,
                     text: label.to_string(),
                     is_single_line: true,
-                    color: if color == Color::WHITE {
+                    color: if background_color == Color::WHITE {
                         Color::BLACK
                     } else {
                         Color::WHITE
@@ -1156,6 +1211,9 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
     #[cfg(all(target_arch = "wasm32"))]
     fn google_button(&mut self) -> &mut Self {
         let origin = get_page_origin().unwrap().replace("http://127.0.0.1", "http://localhost");
+        let origin = get_page_origin().unwrap().replace("http://tauri.localhost", "https://tauri.localhost");
+        info!("REDIRECT URI IS: {}", origin);
+
         self.link_image_button( 
             "Sign in with Google".to_string(), 
             "assets/icons/Google.webp".to_string(), 
@@ -1190,36 +1248,36 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
             },
             Shadow {},
             BackgroundColor(color),
+            ImageTextButton {
+                image,
+                label
+            }
         ))
-        .with_children(|parent| {
-            parent
-                .spawn((
+        .entity_with_children(|entity, parent| {
+            parent.child().insert((
                     Control {
                         fixed_width: SMALL,
                         fixed_height: SMALL,
                         ..default()
                     },
                     ImageRect {
-                        image,
                         brightness: get_secondary_brightness(color),
                         ..default()
                     },
-                ))
-                .id();
-            parent.spawn((
+                )).bind_component_property(Some(entity), name_of_type!(ImageTextButton), name_of!(image in ImageTextButton), name_of_type!(ImageRect), name_of!(image in ImageRect));
+            parent.child().insert((
                 Control {
                     //ExpandWidth: true,
                     ..default()
                 },
-                BLabel {
+                TextLabel {
                     alignment: Anchor::MiddleCenter,
-                    text: label.to_string(),
                     font_size,
                     is_single_line: true,
                     color: get_secondary_color(color),
                     ..default()
                 },
-            ));
+            )).bind_component_property(Some(entity), name_of_type!(ImageTextButton), name_of!(label in ImageTextButton), name_of_type!(TextLabel), name_of!(text in TextLabel));
         })//.scale_on_hover()
     }
 
@@ -1266,7 +1324,7 @@ pub trait BaseBuilder<'a>: Builder<'a> + UiReactEntityCommandsExt {
                         //ExpandWidth: true,
                         ..default()
                     },
-                    BLabel {
+                    TextLabel {
                         alignment: Anchor::MiddleCenter,
                         text: label.to_string(),
                         //IsSingleLine: true,

@@ -1,4 +1,5 @@
 pub mod systems;
+use common::utils::bevy_block_on;
 pub use systems::*;
 
 use crate::prelude::*;
@@ -49,7 +50,7 @@ impl<T> TypedID<T> {
 pub struct DBConfig {
     #[cfg(not(target_arch = "xtensa"))]
     pub db: Surreal<Any>,
-    pub async_world: AsyncWorld,
+    //pub async_world: AsyncWorld,
     pub id_mappings: HashMap<Thing, Entity>
 }
 
@@ -131,16 +132,17 @@ impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clo
     */
 
     fn add_or_set(&mut self, id: Thing, record: T) -> Thing {
-        //let _ = self.add_or_get(id.clone(), record);
+        let _ = self.add_or_get(id.clone(), record);
         //id
-
+        /*
         if let Some((mut _record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == id) {
-            info!("Set record!");
+            //info!("Set record!");
             _record.set(Box::new(record));
         } else {
-            info!("Cached record!");
+            //info!("Cached record!");
             self.cache.cached_records.entry(id.clone()).insert_entry((Tick::new(0), Tick::new(0), record));
         }
+        */
         id
     }
 
@@ -150,9 +152,10 @@ impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clo
         } else {
             let db = &self.db.db;
             let mut o = self.cache.cached_records.entry(id.clone()).or_insert_with(|| {
-                if let Some(record) = bevy::tasks::block_on(get_record::<T>(&db, id.clone())).unwrap() {
+                if let Some(record) = bevy_block_on(get_record::<T>(&db, id.clone())).unwrap() {
                     (Tick::new(0), Tick::new(0), record)
                 } else {
+                    bevy_block_on(upsert_record::<T>(&db, id.clone(), record.clone()));
                     (Tick::new(0), Tick::new(0), record)
                 }
             });
@@ -171,7 +174,8 @@ impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clo
                 Entry::Occupied(o) => Some(o.into_mut()),
                 Entry::Vacant(v) => {
                     let mut o: Option<&mut (Tick, Tick, T)> = None;
-                    if let Ok(record) = bevy::tasks::block_on(get_record::<T>(&db, id.clone())) {
+                    info!("Getting database record, blocking...");
+                    if let Ok(record) = bevy_block_on(get_record::<T>(&db, id.clone())) {
                         if let Some(record) = record {
                             let mut v = v.insert((Tick::new(0), Tick::new(0), record));
                             o = Some(v);
@@ -213,12 +217,18 @@ impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clo
 
     fn iter(&mut self) -> Vec<(Thing, T)> {
         let db = &self.db.db;
-        let records = bevy::tasks::block_on(get_records::<T>(&db)).expect("Failed to get records.");
-        println!("Records found for {}: {}", T::short_type_path(), records.len());
+        //info!("Getting database records, blocking...");
+        let records = bevy_block_on(get_records::<T>(&db)).expect("Failed to get records.");
+        info!("Records found for {}: {}", T::short_type_path(), records.len());
         records
     }
 }
 
+
+pub async fn upsert_record<T: Typed + Serialize + DeserializeOwned>(db: &Surreal<Any>, id: Thing, record: T) -> anyhow::Result<()> {
+    let o: Option<T> = db.upsert((T::short_type_path(), id.id.clone())).content(record).await?;
+    Ok(())
+}
 
 pub async fn get_record<T: Typed + DeserializeOwned>(db: &Surreal<Any>, id: Thing) -> anyhow::Result<Option<T>> {
     let o: Option<T> = db.select((T::short_type_path(), id.id.clone())).await?;
