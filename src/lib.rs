@@ -5,7 +5,8 @@
 pub mod service {
 	use crate::prelude::*;
 	
-    tonic::include_proto!("flux");
+	include!(concat!(env!("OUT_DIR"), concat!("/", "flux.rs")));
+    //tonic::include_proto!("flux");
 }
 
 pub use service::*;

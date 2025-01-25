@@ -1211,14 +1211,21 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     #[cfg(all(target_arch = "wasm32"))]
     fn google_button(&mut self) -> &mut Self {
         let origin = get_page_origin().unwrap().replace("http://127.0.0.1", "http://localhost");
-        let origin = get_page_origin().unwrap().replace("http://tauri.localhost", "https://tauri.localhost");
+        let origin = get_page_origin().unwrap().replace("http://tauri.localhost", "https://dev.empathic.social");
+
+        let scheme = if is_tauri() {
+            "browser"
+        } else {
+            "https"
+        };
+
         info!("REDIRECT URI IS: {}", origin);
 
         self.link_image_button( 
             "Sign in with Google".to_string(), 
             "assets/icons/Google.webp".to_string(), 
             Color::WHITE, 
-            format!("https://oauth.empathic.social/oauth2/authorize?identity_provider=Google&redirect_uri={origin}/login&response_type=CODE&client_id=5jjqc5ebkpavqdsiq5lh18uh6q")
+            format!("{scheme}://oauth.empathic.social/oauth2/authorize?identity_provider=Google&redirect_uri={origin}/login&response_type=CODE&client_id=5jjqc5ebkpavqdsiq5lh18uh6q")
         ).scale_on_hover()
     }
 

@@ -5,24 +5,24 @@ edition = "2021"
 exclude = ["/examples"]
 
 [features]
-default = []
+default = ["tonic"]
 bevy = ["dep:bevy", "flux_core/bevy", "bevy-trait-query", "bevy-async-ecs"]
 dynamic_linking = ["bevy?/dynamic_linking"]
+tonic = ["dep:tonic"]
 
 [dependencies]
 flux_core = { git = "https://github.com/empathic-ai/flux-core.git", default-features = false }
 flux_derive = { git = "https://github.com/empathic-ai/flux-derive.git", default-features = false }
-
-anyhow = { version = "1.0.71", default-features = false }
-prost-types = "0.13.3"
-tonic = { version = "0.12.3", default-features = false, features = ["prost", "codegen"] }
-# tonic = { git = "https://github.com/Catchawink/tonic.git", branch = "hyper-1.0", default-features = false, features = ["prost", "codegen"] }
-prost = { version = "0.13.3" }
-uuid = { version = "1.2.2", features = ["v4"] }
 serde = { version = "1.0.149", features = ["derive"] }
+anyhow = { version = "1.0.71", default-features = false }
+uuid = { version = "1.2.2", features = ["v4"] }
+prost = { version = "0.13.3" }
 documented = "0.1.2"
+tonic = { version = "0.12.3", default-features = false, features = ["prost", "codegen"], optional = true }
 
 [target.'cfg(all(not(target_arch = "xtensa")))'.dependencies]
+prost-types = "0.13.3"
+# tonic = { git = "https://github.com/Catchawink/tonic.git", branch = "hyper-1.0", default-features = false, features = ["prost", "codegen"] }
 common = { git = "https://github.com/empathic-ai/common.git" }
 lazy_static = "1.4.0"
 
