@@ -1205,35 +1205,6 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         }).scale_on_hover()
     }
 
-    // TODO: Add code challenge
-    // See for improving security: https://advancedweb.hu/how-to-secure-the-cognito-login-flow-with-a-state-nonce-and-pkce/
-    // Official documentation: https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html
-    #[cfg(all(target_arch = "wasm32"))]
-    fn google_button(&mut self) -> &mut Self {
-        let origin = get_page_origin().unwrap().replace("http://127.0.0.1", "http://localhost");
-        let origin = get_page_origin().unwrap().replace("http://tauri.localhost", "https://dev.empathic.social");
-
-        let scheme = if is_tauri() {
-            "browser"
-        } else {
-            "https"
-        };
-
-        info!("REDIRECT URI IS: {}", origin);
-
-        self.link_image_button( 
-            "Sign in with Google".to_string(), 
-            "assets/icons/Google.webp".to_string(), 
-            Color::WHITE, 
-            format!("{scheme}://oauth.empathic.social/oauth2/authorize?identity_provider=Google&redirect_uri={origin}/login&response_type=CODE&client_id=5jjqc5ebkpavqdsiq5lh18uh6q")
-        ).scale_on_hover()
-    }
-
-    #[cfg(all(not(target_arch = "wasm32")))]
-    fn google_button(&mut self) -> &mut Self {
-        self
-    }
-
     fn image_text_button(&mut self,
         image: String,
         label: String,

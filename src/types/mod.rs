@@ -31,7 +31,7 @@ pub struct Thing {
 
 impl Thing {
     pub fn new() -> Self {
-        return Self { id: Uuid::new_v4().to_string() };
+        return Self::from(&Uuid::new_v4().to_string());
     }
 
     pub fn from(text: &str) -> Self {
@@ -60,8 +60,14 @@ impl<'de> Deserialize<'de> for Thing {
     }
 }
 
-impl Display for Thing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.id, f)
+impl std::fmt::Display for Thing {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if f.alternate() {
+            // Full UUID when used with "{:#}"
+            write!(f, "{}", self.id)
+        } else {
+            // Short UUID when used with "{}"
+            write!(f, "{}", &self.id[..4])
+        }
     }
 }

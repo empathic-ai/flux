@@ -131,10 +131,15 @@ impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clo
     }
     */
 
+    // TODO: Create shared setup between WASM and other platforms
+    // Probably rewrite DB processes signficantly (using bevy async?)
     fn add_or_set(&mut self, id: Thing, record: T) -> Thing {
+        // Works outside of web--sends immediately to db
+        #[cfg(not(target_arch = "wasm32"))]
         let _ = self.add_or_get(id.clone(), record);
-        //id
-        /*
+        
+        // Needed on web--can't immediateliy send to db
+        #[cfg(target_arch = "wasm32")]
         if let Some((mut _record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == id) {
             //info!("Set record!");
             _record.set(Box::new(record));
@@ -142,7 +147,7 @@ impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clo
             //info!("Cached record!");
             self.cache.cached_records.entry(id.clone()).insert_entry((Tick::new(0), Tick::new(0), record));
         }
-        */
+        
         id
     }
 
