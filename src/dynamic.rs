@@ -37,30 +37,28 @@ impl ReflectMessage for Empty {
 }
 
 impl Message for Empty {
-    fn encode_raw<B>(&self, buf: &mut B)
-    where
-        B: prost::bytes::BufMut,
-        Self: Sized {
-    }
-
-    fn merge_field<B>(
-        &mut self,
-        tag: u32,
-        wire_type: WireType,
-        buf: &mut B,
-        ctx: DecodeContext,
-    ) -> Result<(), prost::DecodeError>
-    where
-        B: prost::bytes::Buf,
-        Self: Sized {
-        skip_field(wire_type, tag, buf, ctx)
-    }
-
     fn encoded_len(&self) -> usize {
         0
     }
 
     fn clear(&mut self) {
+    }
+    
+    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+    where
+        Self: Sized {
+    }
+    
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: WireType,
+        buf: &mut impl prost::bytes::Buf,
+        ctx: DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized {
+            skip_field(wire_type, tag, buf, ctx)
     }
 }
 
@@ -77,9 +75,8 @@ impl Default for Dynamic {
 }
 
 impl Message for Dynamic {
-    fn encode_raw<B>(&self, buf: &mut B)
+    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
     where
-        B: prost::bytes::BufMut,
         Self: Sized {
         
         let o = self.value.as_ref();
@@ -93,15 +90,14 @@ impl Message for Dynamic {
         any.encode(buf).unwrap();
     }
 
-    fn merge_field<B>(
+    fn merge_field(
         &mut self,
         tag: u32,
         wire_type: WireType,
-        buf: &mut B,
+        buf: &mut impl prost::bytes::Buf,
         ctx: DecodeContext,
     ) -> Result<(), prost::DecodeError>
     where
-        B: prost::bytes::Buf,
         Self: Sized {
 
         //self.value.as_ref().merge(buf)
@@ -117,7 +113,55 @@ impl Message for Dynamic {
     }
 }
 
-impl Reflect for Dynamic {
+impl PartialReflect for Dynamic {
+    fn get_represented_type_info(&self) -> Option<&'static TypeInfo> {
+        self.value.get_represented_type_info()
+    }
+    
+    fn into_partial_reflect(self: Box<Self>) -> Box<dyn PartialReflect> {
+        self.value.into_partial_reflect()
+    }
+    
+    fn as_partial_reflect(&self) -> &dyn PartialReflect {
+        self.value.as_partial_reflect()
+    }
+    
+    fn as_partial_reflect_mut(&mut self) -> &mut dyn PartialReflect {
+        self.value.as_partial_reflect_mut()
+    }
+    
+    fn try_into_reflect(self: Box<Self>) -> Result<Box<dyn Reflect>, Box<dyn PartialReflect>> {
+        todo!()
+    }
+    
+    fn try_as_reflect(&self) -> Option<&dyn Reflect> {
+        todo!()
+    }
+    
+    fn try_as_reflect_mut(&mut self) -> Option<&mut dyn Reflect> {
+        todo!()
+    }
+    
+    fn try_apply(&mut self, value: &dyn PartialReflect) -> Result<(), ApplyError> {
+        todo!()
+    }
+    
+    fn reflect_ref(&self) -> ReflectRef {
+        todo!()
+    }
+    
+    fn reflect_mut(&mut self) -> ReflectMut {
+        todo!()
+    }
+    
+    fn reflect_owned(self: Box<Self>) -> ReflectOwned {
+        todo!()
+    }
+    
+    fn clone_value(&self) -> Box<dyn PartialReflect> {
+        todo!()
+    }
+    /*
     fn get_represented_type_info(&self) -> Option<&'static TypeInfo> {
         self.value.get_represented_type_info()
     }
@@ -172,14 +216,15 @@ impl Reflect for Dynamic {
     
     fn try_apply(&mut self, value: &dyn Reflect) -> std::result::Result<(), bevy::reflect::ApplyError> {
         self.value.try_apply(value)
-    }
+    } */
 }
 
+/*
 impl FromReflect for Dynamic {
     fn from_reflect(val: &(dyn bevy::prelude::Reflect + 'static)) -> std::option::Option<Self> {
         Some(Dynamic::from_reflect(val.clone_value()))
     }
-}
+} */
 
 impl Dynamic {
     pub fn new<T>(value: T) -> Dynamic where T: ReflectMessage {
@@ -219,7 +264,7 @@ impl Dynamic {
         }
     }
 }
-
+/*
 impl Clone for Dynamic {
     fn clone(&self) -> Self {
         let value = self.value.clone();
@@ -228,4 +273,4 @@ impl Clone for Dynamic {
             //cloned_func: self.cloned_func.clone()
         }
     }
-}
+} */

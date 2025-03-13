@@ -175,6 +175,7 @@ pub struct UpdateChatEvent(pub Entity);
 #[derive(Event)]
 pub struct ClickEvent(pub Entity);
 
+/* 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn update_route() {
 }
@@ -216,7 +217,6 @@ pub fn on_show_detection() {
 pub fn setup() {
 }
 
-/* 
 pub fn get_components_for_entity<'a>(
     entity: &Entity,
     archetypes: &'a Archetypes,

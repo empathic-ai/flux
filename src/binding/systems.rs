@@ -297,6 +297,7 @@ impl<'w, 's> Bindings<'w, 's> {
     
                                     let child = binding.create_entity_func.as_ref().unwrap().call(commands);
                                     let source_value = item.clone_value();
+            
                                     commands.entity(target_entity).add_child(child);
 
                                     let target_component_name = binding.target_component_name.clone();
