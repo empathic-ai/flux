@@ -1,3 +1,4 @@
+use bevy::reflect::DynamicStruct;
 use bevy::reflect::ReflectRef;
 use bevy::reflect::TypeInfo;
 use bevy::reflect::Typed;
@@ -177,30 +178,28 @@ impl PeerMultiplexer {
         channels.entry(receiver_id).or_insert_with(|| MultiplexerChannel::default()).send_ev(ev);
     }
 
-    pub fn send_ev(&self, sender_id: Thing, receiver_id: Thing, ev: Dynamic) {
-        self.send(receiver_id, NetworkEvent {
-            peer_id: sender_id,
-            ev
-        });
+    pub fn send_ev<T>(&self, sender_id: Thing, receiver_id: Thing, ev: T) where T: Struct {
+        self.send(receiver_id, NetworkEvent::new(sender_id, ev));
     }
 
-    pub async fn recv_ev<T>(&self, receiver_id: Thing, sender_id: Thing) -> Result<T> where T: Reflect + Default + Typed {
+    pub async fn recv_ev<T>(&self, receiver_id: Thing, sender_id: Thing) -> Result<T> where T: Reflect + FromReflect + Typed {
         let mut rx = self.get_receiver(receiver_id);
         loop {
             if let Some(ev) = rx.try_recv() {
                 if ev.peer_id == sender_id {
                     let event_type = ev.ev;
 
-                    if let ReflectRef::Enum(enum_ref) = event_type.as_ref().reflect_ref() {
+                    if let ReflectRef::Enum(enum_ref) = event_type.reflect_ref() {
                         let s = enum_ref.field_at(0).unwrap();
 
                         if let TypeInfo::Struct(_struct_info) = T::type_info()
                         {
                             if _struct_info.type_path() == s.reflect_type_path() {
 
-                                let mut t = T::default();
+                                let mut t = T::from_reflect(s).unwrap();
                    
-                                t.apply(s);
+                                //let mut t = T::default();
+                                //t.apply(s);
                                 
                                 return Ok(t); 
                             }

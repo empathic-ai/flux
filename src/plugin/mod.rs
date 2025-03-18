@@ -27,7 +27,7 @@ impl FluxConfig {
     }
 }
 
-struct FluxPlugin {
+pub struct FluxPlugin {
     config: FluxConfig,
 }
 
@@ -39,5 +39,7 @@ impl FluxPlugin {
 
 impl Plugin for FluxPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(self.config.clone())
+            .add_event::<NetworkEvent>();
     }
 }

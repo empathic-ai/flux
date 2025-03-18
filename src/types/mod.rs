@@ -4,10 +4,15 @@ use bevy::reflect::{DynamicStruct, DynamicTyped, GetTypeRegistration, TypeRegist
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use smart_clone::SmartClone;
 use uuid::Uuid;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::fmt::Display;
 use crate::prelude::*;
 use std::fmt::Debug;
+
+pub mod dynamic_struct_serde;
+
+pub trait FluxRecord = Component + Reflect + PartialReflect + Typed + Clone + Debug + Reactive + GetTypeRegistration + Serialize + DeserializeOwned;
+
 /*
 #[cfg(feature = "bevy")]
 #[cfg_attr(feature = "bevy", derive(Reflect))]
@@ -28,6 +33,7 @@ pub struct Thing {
 //trait DynamicReflect: PartialReflect + FromReflect {}
 //pub type Dynamic = Box<dyn DynamicReflect>;
 
+/*
 struct Dynamic(Box<dyn Reflect>);
 
 impl Clone for Dynamic {
@@ -138,21 +144,39 @@ impl GetTypeRegistration for Dynamic {
         todo!()
     }
 } */
+ */
 
 /// This is a test comment.
-#[derive(Reactive, Reflect, Event)]
+#[derive(Reactive, Reflect, Event, SmartClone)]
 #[reflect(from_reflect = false)]
 //#[derive(ragent::prelude::Task)]
 //, serde::Serialize, serde::Deserialize
 #[derive(documented::Documented)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[cfg_attr(feature = "prost", derive(::prost::Message))]
-//#[derive(Clone)]
 pub struct NetworkEvent {
     pub peer_id: Thing,
-    pub ev: Dynamic
+    #[clone(clone_with = "DynamicStruct::clone_dynamic")]
+    pub ev: DynamicStruct
 }
 
+impl NetworkEvent {
+    pub fn new<T>(peer_id: Thing, ev: T) -> Self where T: Struct {
+        Self {
+            peer_id,
+            ev: ev.clone_dynamic()
+        }
+    }
+
+    pub fn get_ev<T>(&self) -> Result<T> where T: FromReflect {
+        match T::from_reflect(&self.ev) {
+            Some(ev) => Ok(ev),
+            None => {
+                Err(anyhow!("Failed to cast network event to type!"))
+            },
+        }
+    }
+}
 
 #[cfg_attr(feature = "bevy", derive(Reflect))]
 #[cfg_attr(feature = "prost", derive(::prost::Message))]

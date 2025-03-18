@@ -3,8 +3,8 @@ mod interact_state;
 pub use interact_state::*;
 use crate::prelude::*;
 use std::collections::HashMap;
-use bevy::prelude::*;
-
+use bevy::{ecs::system::SystemId, prelude::*};
+use serde::{Serialize, Deserialize};
 use std::clone::Clone;
 
 #[derive(Debug, Clone, Default, Component)]
@@ -13,12 +13,13 @@ pub struct Slider {
     pub percent: f32
 }
 
-#[derive(Debug, Clone, Copy, Reflect, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Copy, Reflect, PartialEq, Eq)]
 pub enum Anchor {
     UpperLeft = 0,
     UpperCenter = 1,
     UpperRight = 2,
     MiddleLeft = 3,
+    #[default]
     MiddleCenter = 4,
     MiddleRight = 5,
     LowerLeft = 6,
@@ -42,7 +43,7 @@ pub struct StripePaymentElement {
     pub SubmitEntity: Entity
 }
 
-#[derive(bevy::prelude::Component, Debug, Reflect, Reactive)]
+#[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
 pub struct Control {
     pub name: String,
     pub Type: String,
@@ -206,10 +207,10 @@ pub struct ImageButton {
 #[derive(Component, Default)]
 pub struct BButton {
     //pub image: String,
-    pub on_click: Option<CommandFunc>,
+    pub on_click: Option<SystemId>,
 }
 
-#[derive(Default, Reflect)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Copy, Reflect, PartialEq, Eq)]
 pub enum InputType {
     #[default]
     Default,
@@ -217,18 +218,21 @@ pub enum InputType {
     PhoneNumber
 }
 
-#[derive(Component, Reflect, Reactive)]
+#[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
 pub struct InputField {
     pub text: String,
     pub placeholder: String,
     pub input_type: InputType,
     pub font_size: f32,
     #[reflect(ignore)]
-    pub on_submitted: Option<CommandFunc>,
+    #[serde(skip)]
+    pub on_submitted: Option<SystemId>,
     #[reflect(ignore)]
-    pub on_focused: Option<CommandFunc>,
+    #[serde(skip)]
+    pub on_focused: Option<SystemId>,
     #[reflect(ignore)]
-    pub on_unfocused: Option<CommandFunc>,
+    #[serde(skip)]
+    pub on_unfocused: Option<SystemId>,
     pub alignment: Anchor
 }
 
@@ -269,7 +273,7 @@ impl Default for HList {
 #[derive(Component, Debug, Default)]
 pub struct Shadow {}
 
-#[derive(Component, Debug, Reflect, Reactive)]
+#[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
 pub struct ImageRect {
     pub image: String,
     pub data: Vec<u8>,
@@ -304,7 +308,7 @@ pub struct VScroll {}
 #[derive(Component, Debug)]
 pub struct IFrame {}
 
-#[derive(Component, Debug, Reflect, Reactive)]
+#[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
 pub struct TextLabel {
     pub text: String,
     pub font: String,

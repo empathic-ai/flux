@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use crate::prelude::*;
 
 #[bevy_trait_query::queryable]
@@ -13,7 +14,7 @@ pub struct AutoBindable {
     pub value: Box<dyn Reflect>
 }
 
-#[derive(Component, Reflect, Reactive)]
+#[derive(Component, Reflect, Reactive, Serialize, Deserialize, Clone, Debug)]
 pub struct ReactiveView {
     pub id: Thing
 }

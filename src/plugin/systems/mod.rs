@@ -175,7 +175,6 @@ pub struct UpdateChatEvent(pub Entity);
 #[derive(Event)]
 pub struct ClickEvent(pub Entity);
 
-/* 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn update_route() {
 }
@@ -216,7 +215,7 @@ pub fn on_show_detection() {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn setup() {
 }
-
+/*
 pub fn get_components_for_entity<'a>(
     entity: &Entity,
     archetypes: &'a Archetypes,
@@ -299,8 +298,7 @@ pub fn process(world: &mut World) {
 
     //world.init_resource::<Binding>();
 }
-*/
-
+ */
 pub struct CommandBuilder<'w, 's> {
     commands: Commands<'w, 's>,
     custom_steps: Vec<Box<dyn Fn(&mut EntityCommands)>>, // Store closures for custom steps

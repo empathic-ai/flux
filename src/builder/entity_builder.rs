@@ -1,4 +1,4 @@
-use bevy::{ecs::system::{EntityCommands, RunSystemOnce}, prelude::*, utils::default};
+use bevy::{ecs::system::{EntityCommands, RunSystemOnce, SystemId}, prelude::*, utils::default};
 //use bevy_cobweb_ui::prelude::*;
 //use bevy_cobweb::prelude::*;
 
@@ -169,10 +169,15 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         let id = self.id();
         let callback = (on_click)(id);
 
-        let syscommand = self.get_commands().commands().register_system(callback);
+        let system = self.get_commands().commands().register_system(callback);
+        self.on_click_with_system(system)
+    }
+
+
+    fn on_click_with_system(&mut self, system: SystemId) -> &mut Self {
         self.upsert(|comp: &mut Button|{}).insert(
             OnClick {
-                system: syscommand
+                system
             }
         )
     }
@@ -223,7 +228,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     fn panel_dark_image_button(&mut self, image: String) -> &mut Self {
         self.panel().h_list()
         .with_children(|parent| {
-            parent.child().dark_image_button(image, None);
+            parent.child().dark_image_button(image);
         })
     }
 
@@ -936,7 +941,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             //Some(DarkImageButton(parent, if (is_minimize) {"assets/icons/Minimize.png".to_string() } else { "assets/icons/Tasks.png".to_string() }, Some(|| { write_event(TASKS, "".to_string()); })));
             //parent.spawn((Control { Width: 15, ..default() }));
 
-            parent.child().dark_image_button("assets/icons/".to_string() + "Search.png", None);
+            parent.child().dark_image_button("assets/icons/".to_string() + "Search.png");
             let entity = parent.child().insert((
                 Control {
                     ExpandWidth: true,
@@ -1032,8 +1037,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     
     fn dark_image_button(
         &mut self,
-        image: String,
-        on_click: Option<CommandFunc>,
+        image: String
     ) -> &mut Self {
         let _image = image;
         self.insert((
@@ -1042,11 +1046,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                 fixed_width: SMALL,
                 fixed_height: SMALL,
                 ..default()
-            },
-            BButton {
-                on_click,
-                ..default()
-            },
+            }
         ))
         .with_children(|parent| {
             parent.spawn((
@@ -1272,19 +1272,20 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     ..default()
                 },
                 BButton {
-                    on_click: Some(CommandFunc::new(move |_commands: &mut Commands| {
-                        let url = url.clone();
-                        spawn(async move {
-                            go_to_url(url);
-                        });
-                    })),
                     ..default()
                 },
                 Container {},
                 HList {  spacing: SMALL_SPACE, anchor: Anchor::MiddleCenter, ..default() },
                 Shadow {},
                 BackgroundColor(color),
-            )).with_children(|parent| {
+            )).on_click(|entity| {
+                move || {
+                    let url = url.clone();
+                    spawn(async move {
+                        go_to_url(url);
+                    });
+                }
+            }).with_children(|parent| {
                 parent.spawn((
                     Control {
                         fixed_width: 20.0,

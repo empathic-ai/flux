@@ -64,13 +64,19 @@ impl DBConfig {
     }
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct DBCache<T> {
     pub cached_records: HashMap<Thing, (Tick, Tick, T)>
 }
 
+impl<T> Default for DBCache<T> {
+    fn default() -> Self {
+        Self { cached_records: Default::default() }
+    }
+}
+
 #[derive(SystemParam)]
-pub struct DbQuery<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clone + Debug> {
+pub struct DbQuery<'w, 's, T: FluxRecord> {
     records_query: Query<'w, 's, (&'static mut T, &'static DBRecord)>,
     cache: ResMut<'w, DBCache<T>>,
     db: Res<'w, DBConfig>
@@ -87,7 +93,7 @@ pub trait DB<T> {
 
 
 
-impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clone + Debug> DB<T> for DbQuery<'w, 's, T> {
+impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
 
     /*
     fn add_or_set_async(&mut self, id: Thing, record: T) -> Pin<Box<dyn Future<Output = Thing>>> {
@@ -230,7 +236,6 @@ impl<'w, 's, T: Component + Reflect + Typed + Serialize + DeserializeOwned + Clo
     }
 }
 
-
 pub async fn upsert_record<T: Typed + Serialize + DeserializeOwned>(db: &Surreal<Any>, id: Thing, record: T) -> anyhow::Result<()> {
     let o: Option<T> = db.upsert((T::short_type_path(), id.id.clone())).content(record).await?;
     Ok(())
@@ -240,7 +245,6 @@ pub async fn get_record<T: Typed + DeserializeOwned>(db: &Surreal<Any>, id: Thin
     let o: Option<T> = db.select((T::short_type_path(), id.id.clone())).await?;
     Ok(o)
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TypedRecord<T> where T: Debug + Serialize {
