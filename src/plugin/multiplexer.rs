@@ -14,6 +14,7 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
+use std::task::Poll;
 use anyhow::Result;
 use crate::prelude::*;
 use bevy::prelude::*;
@@ -67,15 +68,20 @@ impl MultiplexerChannel {
 }
 
 #[derive(Clone)]
-pub struct PeerMultiplexerReceiver {
+pub struct PeerChannel {
     peer_id: Thing,
     last_ev: usize,
-    peer_multiplexer: PeerMultiplexer
+    multiplexer: PeerMultiplexer
 }
 
-impl PeerMultiplexerReceiver {
+impl PeerChannel {
+
+    pub fn send_ev(&self, receiver_id: Thing, ev: DynamicStruct) {
+        self.multiplexer.send(receiver_id, NetworkEvent::new(self.peer_id.clone(), ev));
+    }
+
     pub fn try_recv(&mut self) -> Option<NetworkEvent> {
-        let mut channels = self.peer_multiplexer.channels.write().unwrap();
+        let mut channels = self.multiplexer.channels.write().unwrap();
 
         let mut channel = channels.get_mut(&self.peer_id.clone()).expect(&format!("Failed to get peer event buffer for ID {}", self.peer_id.id));
 
@@ -98,6 +104,14 @@ impl PeerMultiplexerReceiver {
     }
 }
 
+impl Stream for PeerChannel {
+    type Item = NetworkEvent;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        Poll::Ready(self.try_recv())
+    }
+}
+
 impl PeerMultiplexer {
     pub fn new() -> Self {
         Self {
@@ -114,16 +128,16 @@ impl PeerMultiplexer {
         Ok(())
     }*/
 
-    pub fn get_receiver(&self, peer_id: Thing) -> PeerMultiplexerReceiver {
+    pub fn get_receiver(&self, peer_id: Thing) -> PeerChannel {
         let mut channels = self.channels.write().unwrap();
         let mut channel = channels.entry(peer_id.clone()).or_insert_with(|| MultiplexerChannel::default());
         channel.num_receivers += 1;
-        println!("Added receiver for {}.", peer_id);
+        //info!("Added receiver for {}.", peer_id);
         
-        PeerMultiplexerReceiver {
+        PeerChannel {
             last_ev: channel.last_ev,
             peer_id: peer_id,
-            peer_multiplexer: self.clone()
+            multiplexer: self.clone()
         }
     }
 

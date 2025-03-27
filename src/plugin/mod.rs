@@ -14,11 +14,12 @@ use crate::prelude::*;
 pub struct FluxConfig {
     pub peer_id: Thing,
     pub multiplexer: PeerMultiplexer,
-    pub listener: PeerMultiplexerReceiver,
+    pub listener: PeerChannel,
 }
 
 impl FluxConfig {
-    pub fn new(peer_id: Thing, multiplexer: PeerMultiplexer) -> Self {
+    pub fn new(peer_id: Thing) -> Self {
+        let multiplexer = PeerMultiplexer::new();
         Self {
             peer_id: peer_id.clone(),
             multiplexer: multiplexer.clone(),
@@ -40,6 +41,7 @@ impl FluxPlugin {
 impl Plugin for FluxPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.config.clone())
-            .add_event::<NetworkEvent>();
+            .add_event::<NetworkEvent>()
+            .add_event::<PeerEvent>();
     }
 }

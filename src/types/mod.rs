@@ -13,6 +13,14 @@ pub mod dynamic_struct_serde;
 
 pub trait FluxRecord = Component + Reflect + PartialReflect + Typed + Clone + Debug + Reactive + GetTypeRegistration + Serialize + DeserializeOwned;
 
+#[derive(Event)]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone)]
+pub struct PeerEvent {
+    pub peer_id: Option<Thing>,
+    pub network_event: Option<NetworkEvent>,
+}
+
 /*
 #[cfg(feature = "bevy")]
 #[cfg_attr(feature = "bevy", derive(Reflect))]
@@ -147,16 +155,16 @@ impl GetTypeRegistration for Dynamic {
  */
 
 /// This is a test comment.
-#[derive(Reactive, Reflect, Event, SmartClone)]
+#[derive(Reactive, Reflect, Event, SmartClone, Serialize, Deserialize)]
 #[reflect(from_reflect = false)]
 //#[derive(ragent::prelude::Task)]
-//, serde::Serialize, serde::Deserialize
 #[derive(documented::Documented)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[cfg_attr(feature = "prost", derive(::prost::Message))]
 pub struct NetworkEvent {
     pub peer_id: Thing,
     #[clone(clone_with = "DynamicStruct::clone_dynamic")]
+    #[serde(with = "dynamic_struct_serde")]
     pub ev: DynamicStruct
 }
 
