@@ -13,6 +13,11 @@ pub mod service {
 #[cfg(feature = "tonic")]
 pub use service::*;
 
+#[cfg(feature = "server")]
+pub mod server;
+#[cfg(feature = "client")]
+pub mod client;
+
 pub mod binding;
 pub mod builder;
 pub mod elements;
@@ -22,6 +27,10 @@ pub mod plugin;
 pub mod types;
 
 pub mod prelude {
+	#[cfg(feature = "server")]
+	pub use crate::server::*;
+	#[cfg(feature = "client")]
+	pub use crate::client::*;
 	pub use flux_derive::*;
 	pub use flux_core::prelude::*;
 	pub use crate::binding::*;

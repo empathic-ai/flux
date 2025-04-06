@@ -24,7 +24,7 @@ use std::fmt::Debug;
 
 #[derive(Component, Debug, Default)]
 pub struct DBRecord {
-    pub id: Thing
+    pub id: Id
 }
 
 // TODO: Create better mechanism for indicating a component is loading
@@ -49,16 +49,16 @@ pub struct DBConfig {
     #[cfg(not(target_arch = "xtensa"))]
     pub db: Surreal<Any>,
     //pub async_world: AsyncWorld,
-    pub id_mappings: HashMap<Thing, Entity>
+    pub id_mappings: HashMap<Id, Entity>
 }
 
 
 impl DBConfig {
-    pub fn get_entity(&self, id: &Thing) -> Option<&Entity> {
+    pub fn get_entity(&self, id: &Id) -> Option<&Entity> {
         self.id_mappings.get(id)
     }
 
-    pub fn insert_entity(&mut self, id: &Thing, entity: Entity) -> Entity{
+    pub fn insert_entity(&mut self, id: &Id, entity: Entity) -> Entity{
         self.id_mappings.insert(id.clone(), entity);
         entity
     }
@@ -66,7 +66,7 @@ impl DBConfig {
 
 #[derive(Resource)]
 pub struct DBCache<T> {
-    pub cached_records: HashMap<Thing, (Tick, Tick, T)>
+    pub cached_records: HashMap<Id, (Tick, Tick, T)>
 }
 
 impl<T> Default for DBCache<T> {
@@ -85,10 +85,10 @@ pub struct DbQuery<'w, 's, T: FluxRecord> {
 pub trait DB<T> {
     //fn add_or_set_async(&mut self, id: Thing, record: T) -> impl Future<Output = Thing>;
     //fn add_or_get_async(&mut self, id: Thing, record: T) -> impl Future<Output = Thing>;//Mut<'_, T>;
-    fn add_or_set(&mut self, id: Thing, record: T) -> Thing;
-    fn add_or_get(&mut self, id: Thing, record: T) -> Mut<'_, T>;
-    fn get(&mut self, id: Thing) -> Option<Mut<'_, T>>;
-    fn iter(&mut self) -> Vec<(Thing, T)>;
+    fn add_or_set(&mut self, id: Id, record: T) -> Id;
+    fn add_or_get(&mut self, id: Id, record: T) -> Mut<'_, T>;
+    fn get(&mut self, id: Id) -> Option<Mut<'_, T>>;
+    fn iter(&mut self) -> Vec<(Id, T)>;
 }
 
 
@@ -140,7 +140,7 @@ impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
 
     // TODO: Create shared setup between WASM and other platforms
     // Probably rewrite DB processes signficantly (using bevy async?)
-    fn add_or_set(&mut self, id: Thing, record: T) -> Thing {
+    fn add_or_set(&mut self, id: Id, record: T) -> Id {
         // Works outside of web--sends immediately to db
         #[cfg(not(target_arch = "wasm32"))]
         let _ = self.add_or_get(id.clone(), record);
@@ -158,7 +158,7 @@ impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
         id
     }
 
-    fn add_or_get(&mut self, id: Thing, record: T) -> Mut<'_, T> {
+    fn add_or_get(&mut self, id: Id, record: T) -> Mut<'_, T> {
         if let Some((mut record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == id) {
             record
         } else {
@@ -176,7 +176,7 @@ impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
     }
 
     // Returns None if the entry doesn't exist as an active record, cached record or db record
-    fn get(&mut self, id: Thing) -> Option<Mut<'_, T>> {
+    fn get(&mut self, id: Id) -> Option<Mut<'_, T>> {
         if let Some((mut record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == id) {
             Some(record)
         } else {
@@ -227,7 +227,7 @@ impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
         //let mut iter = self.cache.cached_records.iter_mut().map(|mut o| Mut::new(&mut o.1.2, &mut o.1.0, &mut o.1.1, Tick::new(0), Tick::new(0))).collect();
     //}
 
-    fn iter(&mut self) -> Vec<(Thing, T)> {
+    fn iter(&mut self) -> Vec<(Id, T)> {
         let db = &self.db.db;
         //info!("Getting database records, blocking...");
         let records = bevy_block_on(get_records::<T>(&db)).expect("Failed to get records.");
@@ -236,12 +236,12 @@ impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
     }
 }
 
-pub async fn upsert_record<T: Typed + Serialize + DeserializeOwned>(db: &Surreal<Any>, id: Thing, record: T) -> anyhow::Result<()> {
+pub async fn upsert_record<T: Typed + Serialize + DeserializeOwned>(db: &Surreal<Any>, id: Id, record: T) -> anyhow::Result<()> {
     let o: Option<T> = db.upsert((T::short_type_path(), id.id.clone())).content(record).await?;
     Ok(())
 }
 
-pub async fn get_record<T: Typed + DeserializeOwned>(db: &Surreal<Any>, id: Thing) -> anyhow::Result<Option<T>> {
+pub async fn get_record<T: Typed + DeserializeOwned>(db: &Surreal<Any>, id: Id) -> anyhow::Result<Option<T>> {
     let o: Option<T> = db.select((T::short_type_path(), id.id.clone())).await?;
     Ok(o)
 }
@@ -254,10 +254,10 @@ pub struct TypedRecord<T> where T: Debug + Serialize {
     record: T
 }
 
-pub async fn get_records<T: Typed + Serialize + DeserializeOwned + Clone + Debug>(db: &Surreal<Any>) -> anyhow::Result<Vec<(Thing, T)>> {
+pub async fn get_records<T: Typed + Serialize + DeserializeOwned + Clone + Debug>(db: &Surreal<Any>) -> anyhow::Result<Vec<(Id, T)>> {
     let o: Vec<TypedRecord<T>> = db.select(T::short_type_path()).await?;
     let o = o.iter().map(|record| {
-        (Thing::from(&record.id.id.to_string()), record.record.clone())
+        (Id::from(&record.id.id.to_string()), record.record.clone())
     }).collect();
     Ok(o)
 }

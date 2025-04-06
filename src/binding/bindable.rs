@@ -16,5 +16,5 @@ pub struct AutoBindable {
 
 #[derive(Component, Reflect, Reactive, Serialize, Deserialize, Clone, Debug)]
 pub struct ReactiveView {
-    pub id: Thing
+    pub id: Id
 }

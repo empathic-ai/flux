@@ -20,8 +20,8 @@ use crate::prelude::*;
 use bevy::prelude::*;
 
 #[derive(Clone)]
-pub struct PeerMultiplexer {
-    channels: Arc<RwLock<HashMap<Thing, MultiplexerChannel>>>
+pub struct Multiplexer {
+    channels: Arc<RwLock<HashMap<Id, MultiplexerChannel>>>
 }
 
 #[derive(Default)]
@@ -68,22 +68,26 @@ impl MultiplexerChannel {
 }
 
 #[derive(Clone)]
-pub struct PeerChannel {
-    peer_id: Thing,
+pub struct Channel {
+    id: Id,
     last_ev: usize,
-    multiplexer: PeerMultiplexer
+    multiplexer: Multiplexer
 }
 
-impl PeerChannel {
+impl Channel {
 
-    pub fn send_ev(&self, receiver_id: Thing, ev: DynamicStruct) {
-        self.multiplexer.send(receiver_id, NetworkEvent::new(self.peer_id.clone(), ev));
+    pub fn get_id(&self) -> Id {
+        self.id.clone()
+    }
+
+    pub fn send_ev<T>(&self, peer_id: Id, ev: T) where T: Struct {
+        self.multiplexer.send(peer_id, NetworkEvent::new(self.id.clone(), ev));
     }
 
     pub fn try_recv(&mut self) -> Option<NetworkEvent> {
         let mut channels = self.multiplexer.channels.write().unwrap();
 
-        let mut channel = channels.get_mut(&self.peer_id.clone()).expect(&format!("Failed to get peer event buffer for ID {}", self.peer_id.id));
+        let mut channel = channels.get_mut(&self.id.clone()).expect(&format!("Failed to get peer event buffer for ID {}", self.id.id));
 
         //dbg!(self.peer_id.clone());
         if let Some(ev) = channel.recv_ev(self.last_ev) {
@@ -104,7 +108,7 @@ impl PeerChannel {
     }
 }
 
-impl Stream for PeerChannel {
+impl Stream for Channel {
     type Item = NetworkEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
@@ -112,7 +116,7 @@ impl Stream for PeerChannel {
     }
 }
 
-impl PeerMultiplexer {
+impl Multiplexer {
     pub fn new() -> Self {
         Self {
             //map: Arc::new(RwLock::new(HashMap::new())),
@@ -128,15 +132,15 @@ impl PeerMultiplexer {
         Ok(())
     }*/
 
-    pub fn get_receiver(&self, peer_id: Thing) -> PeerChannel {
+    pub fn get_channel(&self, peer_id: Id) -> Channel {
         let mut channels = self.channels.write().unwrap();
         let mut channel = channels.entry(peer_id.clone()).or_insert_with(|| MultiplexerChannel::default());
         channel.num_receivers += 1;
         //info!("Added receiver for {}.", peer_id);
         
-        PeerChannel {
+        Channel {
             last_ev: channel.last_ev,
-            peer_id: peer_id,
+            id: peer_id,
             multiplexer: self.clone()
         }
     }
@@ -183,21 +187,21 @@ impl PeerMultiplexer {
     //    Ok(sender.subscribe().recv().await?)
     //}
 
-    pub fn send(&self, receiver_id: Thing, ev: NetworkEvent) {
+    pub fn send(&self, recipient_id: Id, ev: NetworkEvent) {
         //dbg!(recv_id);
         //let sender = self.map.read().unwrap().get(&recv_id).unwrap()./to_owned();
         //sender.send(ev.clone()).unwrap();
 
         let mut channels = self.channels.write().unwrap();
-        channels.entry(receiver_id).or_insert_with(|| MultiplexerChannel::default()).send_ev(ev);
+        channels.entry(recipient_id).or_insert_with(|| MultiplexerChannel::default()).send_ev(ev);
     }
 
-    pub fn send_ev<T>(&self, sender_id: Thing, receiver_id: Thing, ev: T) where T: Struct {
+    pub fn send_ev<T>(&self, sender_id: Id, receiver_id: Id, ev: T) where T: Struct {
         self.send(receiver_id, NetworkEvent::new(sender_id, ev));
     }
 
-    pub async fn recv_ev<T>(&self, receiver_id: Thing, sender_id: Thing) -> Result<T> where T: Reflect + FromReflect + Typed {
-        let mut rx = self.get_receiver(receiver_id);
+    pub async fn recv_ev<T>(&self, receiver_id: Id, sender_id: Id) -> Result<T> where T: Reflect + FromReflect + Typed {
+        let mut rx = self.get_channel(receiver_id);
         loop {
             if let Some(ev) = rx.try_recv() {
                 if ev.peer_id == sender_id {

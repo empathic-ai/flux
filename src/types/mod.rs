@@ -1,6 +1,7 @@
 #[cfg(feature = "bevy")]
 use bevy::prelude::*;
 use bevy::reflect::{DynamicStruct, DynamicTyped, GetTypeRegistration, TypeRegistration, Typed};
+use bevy_async_ecs::AsyncWorld;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use smart_clone::SmartClone;
 use uuid::Uuid;
@@ -17,10 +18,29 @@ pub trait FluxRecord = Component + Reflect + PartialReflect + Typed + Clone + De
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone)]
 pub struct PeerEvent {
-    pub peer_id: Option<Thing>,
+    pub peer_id: Option<Id>,
     pub network_event: Option<NetworkEvent>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, States)]
+pub enum DbState {
+	#[default]
+	Connecting,
+    Connected
+}
+
+#[derive(Resource)]
+pub struct AsyncRunner(AsyncWorld);
+
+impl AsyncRunner {
+    pub fn from_world(world: &mut World) -> Self {
+        Self(AsyncWorld::from_world(world))
+    }
+
+    pub fn get_async_world(&self) -> AsyncWorld {
+        self.0.clone()
+    }
+}
 /*
 #[cfg(feature = "bevy")]
 #[cfg_attr(feature = "bevy", derive(Reflect))]
@@ -162,14 +182,14 @@ impl GetTypeRegistration for Dynamic {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[cfg_attr(feature = "prost", derive(::prost::Message))]
 pub struct NetworkEvent {
-    pub peer_id: Thing,
+    pub peer_id: Id,
     #[clone(clone_with = "DynamicStruct::clone_dynamic")]
     #[serde(with = "dynamic_struct_serde")]
     pub ev: DynamicStruct
 }
 
 impl NetworkEvent {
-    pub fn new<T>(peer_id: Thing, ev: T) -> Self where T: Struct {
+    pub fn new<T>(peer_id: Id, ev: T) -> Self where T: Struct {
         Self {
             peer_id,
             ev: ev.clone_dynamic()
@@ -184,19 +204,34 @@ impl NetworkEvent {
             },
         }
     }
+
+    pub fn get_ev_name(&self) -> String {
+        match self.ev.get_represented_type_info() {
+            Some(type_info) => {
+                type_info.type_path().to_string()
+            },
+            None => {
+                "dynamic".to_string()
+            },
+        }
+    }
 }
 
 #[cfg_attr(feature = "bevy", derive(Reflect))]
 #[cfg_attr(feature = "prost", derive(::prost::Message))]
 #[derive(Clone, PartialEq, Hash, Eq, Default, Debug)] //::prost::Message,
-pub struct Thing {
+pub struct Id {
     //#[prost(string, tag = "1")]
     pub id: String
 }
 
-impl Thing {
+impl Id {
     pub fn new() -> Self {
         return Self::from(&Uuid::new_v4().to_string());
+    }
+
+    pub fn nil() -> Self {
+        return Self::from(&Uuid::nil().to_string());
     }
 
     pub fn from(text: &str) -> Self {
@@ -206,7 +241,7 @@ impl Thing {
     }
 }
 
-impl Serialize for Thing {
+impl Serialize for Id {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -215,17 +250,17 @@ impl Serialize for Thing {
     }
 }
 
-impl<'de> Deserialize<'de> for Thing {
+impl<'de> Deserialize<'de> for Id {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let id = String::deserialize(deserializer)?;
-        Ok(Thing { id })
+        Ok(Id { id })
     }
 }
 
-impl std::fmt::Display for Thing {
+impl std::fmt::Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if f.alternate() {
             // Full UUID when used with "{:#}"

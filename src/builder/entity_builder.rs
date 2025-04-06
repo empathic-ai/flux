@@ -206,7 +206,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn reactive_view(&mut self, id: Option<Thing>) -> &mut Self {
+    fn reactive_view(&mut self, id: Option<Id>) -> &mut Self {
         self.insert((
             ReactiveView {
                 id: id.unwrap_or_default()

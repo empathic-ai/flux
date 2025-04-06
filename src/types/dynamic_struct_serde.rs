@@ -1,10 +1,12 @@
-use bevy::reflect::{DynamicStruct, DynamicTypePath, PartialReflect, Reflect, ReflectSerialize, Struct, TypeInfo, TypeRegistry};
+use bevy::{reflect::{serde::ReflectDeserializer, DynamicStruct, DynamicTypePath, PartialReflect, Reflect, ReflectSerialize, Struct, TypeInfo, TypeRegistry}, scene::ron};
 use serde::{
     de::{Error as DeError, MapAccess, Visitor},
     ser::SerializeMap,
     Deserialize, Deserializer, Serialize, Serializer,
 };
 use std::{collections::BTreeMap, fmt};
+use reflect_steroids::prelude::*;
+use serde::de::DeserializeSeed;
 
 /// Helper wrapper that calls into the field’s ReflectSerialize impl.
 struct DynamicField<'a> {
@@ -12,9 +14,7 @@ struct DynamicField<'a> {
 }
 
 impl<'a> Serialize for DynamicField<'a> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer
     {
         if let Some(reflect_ser) = self.field.serializable() {
             match reflect_ser {
@@ -82,23 +82,27 @@ impl<'a> Serialize for DynamicField<'a> {
         D: Deserializer<'de>,
     {
 
-        todo!()
-        /*
+        //todo!()
+   
         // Deserialize into an intermediate representation.
         let repr = DynamicStructRepr::deserialize(deserializer)?;
 
         // Obtain the type registration.
         // In a real application you’d likely pass a registry instance
         // rather than using a default.
-        let registry = TypeRegistry::default();
-        let registration = registry.get_with_name(&repr.type_name).ok_or_else(|| {
+
+        let mut registry = TypeRegistry::new();
+        registry.register_global_types();
+
+        let registration = registry.get_with_type_path(&repr.type_name).ok_or_else(|| {
             D::Error::custom(format!("Unknown type: {}", repr.type_name))
         })?;
 
+        //registration.d
         // Make sure the registered type is a struct.
         let struct_registration = registration
-            .data::<Struct>()
-            .ok_or_else(|| D::Error::custom("Registered type is not a struct"))?;
+            .type_info().as_struct()
+            .map_err(|_| D::Error::custom("Registered type is not a struct."))?;
 
         // Create a new DynamicStruct.
         // (This requires that DynamicStruct have a way to create an empty instance;
@@ -117,6 +121,10 @@ impl<'a> Serialize for DynamicField<'a> {
                 ))
             })?;
 
+            let mut deserializer = ron::de::Deserializer::from_str("").unwrap();
+            let reflect_deserializer = ReflectDeserializer::new(&registry);
+            let deserialized = reflect_deserializer.deserialize(&mut deserializer).unwrap();
+            
             // Deserialize the field value.
             // This assumes that the field’s type implements Deserialize.
             let deserialized_field = serde_json::from_value(value)
@@ -129,6 +137,6 @@ impl<'a> Serialize for DynamicField<'a> {
                 //.map_err(|e| D::Error::custom(format!("Error inserting field: {}", e)))?;
         }
         Ok(dynamic)
-         */
+         //*/
     }
 //}
