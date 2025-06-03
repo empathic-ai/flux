@@ -10,7 +10,7 @@
 
 **⚠️ Still in early development. ⚠️**
 
-A cohesive system for networking/replication, data binding and data storage.
+A cohesive system for networking/replication, data binding and data storage using Bevy ECS.
 
 Create complex configurations of entities (scenes, UI layouts, etc.) using a straightforward builder pattern.
 
