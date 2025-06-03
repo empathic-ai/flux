@@ -1,4 +1,4 @@
-use bevy::{reflect::{serde::{ReflectDeserializer, ReflectSerializer}, DynamicStruct, DynamicTypePath, PartialReflect, Reflect, ReflectRef, ReflectSerialize, Struct, TypeInfo, TypeRegistry}};
+use bevy::{prelude::info, reflect::{serde::{ReflectDeserializer, ReflectSerializer}, DynamicStruct, DynamicTypePath, DynamicVariant, PartialReflect, Reflect, ReflectRef, ReflectSerialize, Struct, TypeInfo, TypeRegistry}, scene::ron};
 use serde::{
 de::{Error as DeError, MapAccess, Visitor},
 ser::SerializeMap,
@@ -11,7 +11,7 @@ use serde::de::DeserializeSeed;
 /// Serializes a DynamicStruct as a map with two entries:
 /// - "type": the concrete type name (if known)
 /// - "fields": a map of field names to field values.
-pub fn serialize<S>(value: &DynamicStruct, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize<S>(value: &DynamicVariant, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -26,7 +26,7 @@ where
 
 /// Note: Deserialization requires that the concrete type be registered.
 /// You might want to pass in your TypeRegistry instead of using a default.
-pub fn deserialize<'de, D>(deserializer: D) -> Result<DynamicStruct, D::Error>
+pub fn deserialize<'de, D>(deserializer: D) -> Result<DynamicVariant, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -37,7 +37,7 @@ where
 
     //info!("Using dynamic struct deserializer.");
 
-    if let ReflectRef::Struct(struct_ref) = value.reflect_ref() {
+    if let ReflectRef::Variant(variant_ref) = value.reflect_ref() {
         Ok(struct_ref.clone_dynamic())
     } else {
         Err(serde::de::Error::custom("Value was not a dynamic struct"))

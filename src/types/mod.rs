@@ -1,7 +1,6 @@
 #[cfg(feature = "bevy")]
 use bevy::prelude::*;
-use bevy::reflect::{DynamicStruct, DynamicTyped, GetTypeRegistration, TypeRegistration, Typed};
-use bevy_async_ecs::AsyncWorld;
+use bevy::{ecs::component::Mutable, reflect::{DynamicStruct, DynamicTyped, GetTypeRegistration, TypeRegistration, Typed}};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use smart_clone::SmartClone;
 use uuid::Uuid;
@@ -10,9 +9,15 @@ use std::fmt::Display;
 use crate::prelude::*;
 use std::fmt::Debug;
 
-pub mod dynamic_struct_serde;
+#[cfg(feature = "futures")]
+mod async_runner;
+#[cfg(feature = "futures")]
+use async_runner::*;
 
-pub trait FluxRecord = Component + Reflect + PartialReflect + Typed + Clone + Debug + Reactive + GetTypeRegistration + Serialize + DeserializeOwned;
+pub mod dynamic_struct_serde;
+//pub mod dynamic_variant_serde;
+
+pub trait FluxRecord = Component<Mutability = Mutable> + Reflect + PartialReflect + Typed + Clone + Debug + Reactive + GetTypeRegistration + Serialize + DeserializeOwned;
 
 #[derive(Event)]
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -29,18 +34,30 @@ pub enum DbState {
     Connected
 }
 
-#[derive(Resource)]
-pub struct AsyncRunner(AsyncWorld);
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, States)]
+pub enum NetworkState {
+	#[default]
+	Connecting,
+    Connected
+}
 
-impl AsyncRunner {
-    pub fn from_world(world: &mut World) -> Self {
-        Self(AsyncWorld::from_world(world))
+#[derive(Resource, Clone)]
+pub struct FluxConfig {
+    api_url: String
+}
+
+impl FluxConfig {
+    pub fn new(api_url: String) -> Self {
+        Self {
+            api_url
+        }
     }
 
-    pub fn get_async_world(&self) -> AsyncWorld {
-        self.0.clone()
+    pub fn get_api_url(&self) -> String {
+        self.api_url.clone()
     }
 }
+
 /*
 #[cfg(feature = "bevy")]
 #[cfg_attr(feature = "bevy", derive(Reflect))]
@@ -50,11 +67,11 @@ pub struct Thing {
     pub id: ::prost::alloc::string::String
 }
 
-#[cfg(not(feature = "bevy"))]
-#[derive(Clone, PartialEq, ::prost::Message, Hash, Eq)]
+#[cfg(not(feature = "db"))]
+#[derive(Clone, PartialEq, Hash, Eq)]
 pub struct Thing {
-    #[prost(string, tag = "1")]
-    pub id: ::prost::alloc::string::String
+    //#[prost(string, tag = "1")]
+    pub id: String
 }
 */
 
@@ -174,6 +191,20 @@ impl GetTypeRegistration for Dynamic {
 } */
  */
 
+#[derive(Event, Clone)]
+pub struct DbRequestEvent {
+    pub peer_id: Id,
+    pub db_record_id: Id,
+}
+
+#[derive(Event, Clone)]
+pub struct DbReceiveEvent {
+    pub peer_id: Id,
+    pub db_record_id: Id,
+    pub component_type: String,
+    pub component_data: Vec<u8>
+}
+
 /// This is a test comment.
 #[derive(Reactive, Reflect, Event, SmartClone, Serialize, Deserialize)]
 #[reflect(from_reflect = false)]
@@ -196,19 +227,14 @@ impl NetworkEvent {
         }
     }
 
-    pub fn get_ev<T>(&self) -> Result<T> where T: FromReflect {
-        match T::from_reflect(&self.ev) {
-            Some(ev) => Ok(ev),
-            None => {
-                Err(anyhow!("Failed to cast network event to type!"))
-            },
-        }
+    pub fn get_ev<T>(&self) -> Option<T> where T: FromDynamic {
+        T::from_dynamic(&self.ev)
     }
 
     pub fn get_ev_name(&self) -> String {
         match self.ev.get_represented_type_info() {
             Some(type_info) => {
-                type_info.type_path().to_string()
+                type_info.ty().short_path().to_string()
             },
             None => {
                 "dynamic".to_string()
@@ -219,7 +245,7 @@ impl NetworkEvent {
 
 #[cfg_attr(feature = "bevy", derive(Reflect))]
 #[cfg_attr(feature = "prost", derive(::prost::Message))]
-#[derive(Clone, PartialEq, Hash, Eq, Default, Debug)] //::prost::Message,
+#[derive(Clone, PartialEq, Hash, Eq, Default, Debug, Reactive)] //::prost::Message,
 pub struct Id {
     //#[prost(string, tag = "1")]
     pub id: String

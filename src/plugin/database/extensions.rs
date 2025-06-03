@@ -1,5 +1,4 @@
-use common::utils::bevy_block_on;
-
+use common::prelude::*;
 use crate::prelude::*;
 
 use std::collections::HashMap;
@@ -7,14 +6,17 @@ use std::collections::hash_map::Entry;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::option::IterMut;
+use std::panic::Location;
 use std::pin::Pin;
 
+#[cfg(feature = "surrealdb")]
 use bevy_async_ecs::*;
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy::ecs::component::Tick;
 use bevy::reflect::Typed;
 
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
+#[cfg(feature = "surrealdb")]
 use surrealdb::{engine::any::Any, Surreal};
 
 use uuid::Uuid;
@@ -46,7 +48,7 @@ impl<T> TypedID<T> {
 
 #[derive(Resource)]
 pub struct DBConfig {
-    #[cfg(not(target_arch = "xtensa"))]
+    #[cfg(feature = "surrealdb")]
     pub db: Surreal<Any>,
     //pub async_world: AsyncWorld,
     pub id_mappings: HashMap<Id, Entity>
@@ -82,17 +84,17 @@ pub struct DbQuery<'w, 's, T: FluxRecord> {
     db: Res<'w, DBConfig>
 }
 
+#[cfg(target_arch = "surrealdb")]
 pub trait DB<T> {
     //fn add_or_set_async(&mut self, id: Thing, record: T) -> impl Future<Output = Thing>;
     //fn add_or_get_async(&mut self, id: Thing, record: T) -> impl Future<Output = Thing>;//Mut<'_, T>;
     fn add_or_set(&mut self, id: Id, record: T) -> Id;
-    fn add_or_get(&mut self, id: Id, record: T) -> Mut<'_, T>;
-    fn get(&mut self, id: Id) -> Option<Mut<'_, T>>;
+    fn add_or_get(&mut self, id: Id, record: T) ->  &mut T;
+    fn get(&mut self, id: &Id) -> Option<Mut<'_, T>>;
     fn iter(&mut self) -> Vec<(Id, T)>;
 }
 
-
-
+#[cfg(target_arch = "surrealdb")]
 impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
 
     /*
@@ -142,9 +144,11 @@ impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
     // Probably rewrite DB processes signficantly (using bevy async?)
     fn add_or_set(&mut self, id: Id, record: T) -> Id {
         // Works outside of web--sends immediately to db
-        #[cfg(not(target_arch = "wasm32"))]
-        let _ = self.add_or_get(id.clone(), record);
-        
+        #[cfg(not(target_arch = "wasm32"))] {
+            let mut db_record = self.add_or_get(id.clone(), record.clone());
+            db_record.set(Box::new(record));
+        }
+
         // Needed on web--can't immediateliy send to db
         #[cfg(target_arch = "wasm32")]
         if let Some((mut _record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == id) {
@@ -158,26 +162,34 @@ impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
         id
     }
 
-    fn add_or_get(&mut self, id: Id, record: T) -> Mut<'_, T> {
+    fn add_or_get(&mut self, id: Id, record: T) -> &mut T {
         if let Some((mut record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == id) {
-            record
+            &mut record
         } else {
+            #[cfg(feature = "surrealdb")]
             let db = &self.db.db;
+
             let mut o = self.cache.cached_records.entry(id.clone()).or_insert_with(|| {
+
+                #[cfg(feature = "surrealdb")]
                 if let Some(record) = bevy_block_on(get_record::<T>(&db, id.clone())).unwrap() {
                     (Tick::new(0), Tick::new(0), record)
                 } else {
                     bevy_block_on(upsert_record::<T>(&db, id.clone(), record.clone()));
-                    (Tick::new(0), Tick::new(0), record)
+                    (Tick::new(0), Tick::new(0), record.clone())
                 }
+
+                #[cfg(not(feature = "surrealdb"))]
+                (Tick::new(0), Tick::new(0), record.clone())
             });
-            Mut::new(&mut o.2, &mut o.0, &mut o.1, Tick::new(0), Tick::new(0))
+            &mut o.2
+            //Mut::new(&mut o.2, &mut o.0, &mut o.1, Tick::new(0), Tick::new(0))
         }
     }
 
     // Returns None if the entry doesn't exist as an active record, cached record or db record
-    fn get(&mut self, id: Id) -> Option<Mut<'_, T>> {
-        if let Some((mut record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == id) {
+    fn get(&mut self, id: &Id) -> Option<Mut<'_, T>> {
+        if let Some((mut record, _)) = self.records_query.iter_mut().find(|(_, db_record)| db_record.id == *id) {
             Some(record)
         } else {
             let db = &self.db.db;
@@ -230,22 +242,25 @@ impl<'w, 's, T: FluxRecord> DB<T> for DbQuery<'w, 's, T> {
     fn iter(&mut self) -> Vec<(Id, T)> {
         let db = &self.db.db;
         //info!("Getting database records, blocking...");
-        let records = bevy_block_on(get_records::<T>(&db)).expect("Failed to get records.");
+        let records = bevy_block_on(get_records::<T>(&db)).expect(&format!("Failed to get records for {}", T::short_type_path()));
         info!("Records found for {}: {}", T::short_type_path(), records.len());
         records
     }
 }
 
+#[cfg(target_arch = "surrealdb")]
 pub async fn upsert_record<T: Typed + Serialize + DeserializeOwned>(db: &Surreal<Any>, id: Id, record: T) -> anyhow::Result<()> {
     let o: Option<T> = db.upsert((T::short_type_path(), id.id.clone())).content(record).await?;
     Ok(())
 }
 
+#[cfg(target_arch = "surrealdb")]
 pub async fn get_record<T: Typed + DeserializeOwned>(db: &Surreal<Any>, id: Id) -> anyhow::Result<Option<T>> {
     let o: Option<T> = db.select((T::short_type_path(), id.id.clone())).await?;
     Ok(o)
 }
 
+#[cfg(target_arch = "surrealdb")]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TypedRecord<T> where T: Debug + Serialize {
     #[allow(dead_code)]
@@ -254,6 +269,7 @@ pub struct TypedRecord<T> where T: Debug + Serialize {
     record: T
 }
 
+#[cfg(target_arch = "surrealdb")]
 pub async fn get_records<T: Typed + Serialize + DeserializeOwned + Clone + Debug>(db: &Surreal<Any>) -> anyhow::Result<Vec<(Id, T)>> {
     let o: Vec<TypedRecord<T>> = db.select(T::short_type_path()).await?;
     let o = o.iter().map(|record| {

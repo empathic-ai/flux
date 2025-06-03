@@ -1,4 +1,4 @@
-use bevy::{ecs::system::{EntityCommands, RunSystemOnce, SystemId}, prelude::*, utils::default};
+use bevy::{ecs::system::{EntityCommands, RunSystemOnce, SystemId}, prelude::*, reflect::ReflectKind, utils::default};
 //use bevy_cobweb_ui::prelude::*;
 //use bevy_cobweb::prelude::*;
 
@@ -108,7 +108,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         .with_children(|parent| {
             parent.spawn((
                 Control {
-                    ExpandWidth: true,
+                    expand_width: true,
                     ExpandHeight: true,
                     //FixedWidth: 285.0,
                     //fixed_height: 285.0,
@@ -140,7 +140,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 
     fn by_empathic_title(&mut self, brightness: f32, size: f32) -> &mut Self {
         self.expand_width().h_list().padding(Vec4::splat(HALF_SMALL_SPACE*size)).with_children(|parent| {
-            //parent.child().label("by".to_string(), DEFAULT_FONT_SIZE*size, Color::rgb(brightness, brightness, brightness), Anchor::MiddleLeft, true);
+            //parent.child().label("by".to_string(), DEFAULT_FONT_SIZE*size, Color::srgb(brightness, brightness, brightness), Anchor::MiddleLeft, true);
             //parent.child().fixed_width(7.5*size);
             parent.child().insert((
                 ImageRect {
@@ -206,10 +206,11 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn reactive_view(&mut self, id: Option<Id>) -> &mut Self {
+
+    fn reactive_view<T: Struct>(&mut self, value: T) -> &mut Self {
         self.insert((
             ReactiveView {
-                id: id.unwrap_or_default()
+                value: value.clone_dynamic()
             },
         ))
     }
@@ -262,6 +263,11 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             });
         });
         self
+    }
+
+    fn bind_self_property(&mut self, source_component_name: &str, source_property_path: &str, target_component_name: &str, target_property_path: &str) -> &mut Self {
+        let id = self.id().clone();
+        self.bind_component_property(Some(id), source_component_name, source_property_path, target_component_name, target_property_path)
     }
 
     fn bind_component_property(&mut self, entity: Option<Entity>, source_component_name: &str, source_property_path: &str, target_component_name: &str, target_property_path: &str) -> &mut Self {
@@ -548,7 +554,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self.insert((
             Control {
                 BorderRadius: Vec4::splat(10.0),
-                ExpandWidth: true,
+                expand_width: true,
                 Padding: Vec4::splat(15.0),
                 ..default()
             },
@@ -560,7 +566,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )).with_children(|parent| {
             parent.spawn((
                 Control {
-                    ExpandWidth: true,
+                    expand_width: true,
                     ..default()
                 },
                 TextLabel {
@@ -643,7 +649,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     fn input_field(&mut self, placeholder: String, input_type: InputType) -> &mut Self {
         self.insert((
             Control {
-                ExpandWidth: true,
+                expand_width: true,
                 BorderRadius: Vec4::splat(10.0),
                 is_visible: true,
                 Padding: Vec4::splat(SMALL_SPACE),
@@ -664,7 +670,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     fn input_area(&mut self, placeholder: String, input_type: InputType) -> &mut Self {
         self.insert((
             Control {
-                ExpandWidth: true,
+                expand_width: true,
                 BorderRadius: Vec4::splat(10.0),
                 is_visible: true,
                 Padding: Vec4::splat(SMALL_SPACE),
@@ -691,7 +697,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     fn labeled_line(&mut self, text: String) -> &mut Self {
         self.insert((
             Control {
-                ExpandWidth: true,
+                expand_width: true,
                 ..default()
             },
             Container { ..default() },
@@ -721,12 +727,12 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     fn flexible_h_line(&mut self) -> &mut Self {
         self.insert((
             Control {
-                ExpandWidth: true,
+                expand_width: true,
                 fixed_height: 1.0,
                 BorderRadius: Vec4::splat(1.0),
                 ..default()
             },
-            BackgroundColor(Color::rgb(0.8, 0.8, 0.8)),
+            BackgroundColor(Color::srgb(0.8, 0.8, 0.8)),
         ))
     }
 
@@ -738,7 +744,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                 BorderRadius: Vec4::splat(1.0),
                 ..default()
             },
-            BackgroundColor(Color::rgb(0.8, 0.8, 0.8)),
+            BackgroundColor(Color::srgb(0.8, 0.8, 0.8)),
         ))
     }
 
@@ -762,7 +768,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }    
 
     fn upsert<T, F>(&mut self, f: F) -> &mut Self where F: FnOnce(&mut T) + Send + 'static, T: Default + Component {
-        self.get_commands().queue(move |entity: Entity, world: &mut World| {
+        self.get_commands().queue(move |entity: EntityWorldMut| {
             let mut comp = world.get_mut::<T>(entity);
             if comp.is_none() {
                 comp = None;
@@ -856,7 +862,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 
     fn overflow(&mut self, is_overflow: bool) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
-            comp.IsOverflow = is_overflow;
+            comp.is_overflow = is_overflow;
         })
     }
 
@@ -876,7 +882,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 
     fn expand_width(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
-            comp.ExpandWidth = true;
+            comp.expand_width = true;
         })
     }
 
@@ -923,7 +929,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     fn search(&mut self) -> &mut Self {
         self.insert((
             Control {
-                ExpandWidth: true,
+                expand_width: true,
                 Padding: Vec4::splat(SMALL_SPACE),
                 BorderRadius: Vec4::splat(10.0),
                 ..default()
@@ -944,7 +950,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             parent.child().dark_image_button("assets/icons/".to_string() + "Search.png");
             let entity = parent.child().insert((
                 Control {
-                    ExpandWidth: true,
+                    expand_width: true,
                     ..default()
                 },
                 InputField {
@@ -976,7 +982,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         // Main input field
         self.insert((
             Control {
-                ExpandWidth: true,
+                expand_width: true,
                 Padding: Vec4::splat(HALF_SMALL_SPACE),
                 ..default()
             },
@@ -1115,7 +1121,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     ) -> &mut Self {
         let mut fill_entity: Option<Entity> = None;
         self.insert((
-            Control { ExpandWidth: true, fixed_height: SMALL_SPACE, BorderRadius: Vec4::splat(SMALL_SPACE/2.0), Padding: Vec4::new(0.0, 0.0, 0.0, 0.0), ..default() },
+            Control { expand_width: true, fixed_height: SMALL_SPACE, BorderRadius: Vec4::splat(SMALL_SPACE/2.0), Padding: Vec4::new(0.0, 0.0, 0.0, 0.0), ..default() },
             Container { ..default() },
             HList { spacing: 0.0, anchor: Anchor::MiddleLeft, ..default() },
             BackgroundColor(Srgba::hex("b1acff").unwrap().into())
@@ -1134,7 +1140,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self.insert((
             Control {
                 Padding: Vec4::new(0.0, 0.0, 0.0, 0.0),
-                ExpandWidth: true,
+                expand_width: true,
                 ..default()
             },
             TextLabel {
@@ -1182,17 +1188,19 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             VList { ..default() },
             Shadow {},
             BackgroundColor(background_color),
+            TextButton {
+                label
+            }
         ))
-        .with_children(|parent| {
-            parent.spawn((
+        .entity_with_children(|entity, parent| {
+            parent.child().insert((
                 Control {
                     Padding: Vec4::splat(15.0),
-                    ExpandWidth: true,
+                    //ExpandWidth: true,
                     ..default()
                 },
                 TextLabel {
                     alignment: Anchor::MiddleCenter,
-                    text: label.to_string(),
                     is_single_line: true,
                     color: if background_color == Color::WHITE {
                         Color::BLACK
@@ -1201,7 +1209,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     },
                     ..default()
                 },
-            ));
+            )).bind_component_property(Some(entity), name_of_type!(TextButton), name_of!(label in TextButton), name_of_type!(TextLabel), name_of!(text in TextLabel));
         }).scale_on_hover()
     }
 
@@ -1267,7 +1275,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self.insert((
                 Control {
                     BorderRadius: Vec4::splat(10.0),
-                    ExpandWidth: true,
+                    expand_width: true,
                     Padding: Vec4::splat(15.0),
                     ..default()
                 },

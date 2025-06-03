@@ -1,19 +1,22 @@
 mod extensions;
-use std::time::Duration;
-
 pub use extensions::*;
 
+use std::time::Duration;
 use crate::prelude::*;
 use bevy::prelude::*;
+#[cfg(feature = "surrealdb")]
 use surrealdb::{engine::any::Any, opt::auth::Root, *};
 use anyhow::{anyhow, Error};
+#[cfg(feature = "surrealdb")]
 use bevy_wasm_tasks::*;
+#[cfg(feature = "surrealdb")]
 use bevy_async_ecs::*;
 
-pub fn start(runner: Res<AsyncRunner>, tasks: Tasks, mut config: ResMut<Session>) -> anyhow::Result<()> {
-    info!("Starting server...");
+#[cfg(feature = "surrealdb")]
+pub fn start(config: Res<FluxConfig>, runner: Res<AsyncRunner>, tasks: Tasks) -> anyhow::Result<()> {
+    //info!("Starting server...");
 
-    #[cfg(feature = "production")] {
+    #[cfg(all(feature = "server", feature = "production"))] {
         info!("Starting database...");
 
         Command::new("rm")
@@ -41,7 +44,12 @@ pub fn start(runner: Res<AsyncRunner>, tasks: Tasks, mut config: ResMut<Session>
 
     let async_world = runner.get_async_world();
 
-    tasks.spawn_auto(async move |x| { 
+    let api_url = config.get_api_url();
+
+    tasks.spawn_auto(async move |x| {
+
+        async_world.insert_resource(Session::new(get_peer_id(api_url).await)).await;
+
         let db: Surreal<Any> = Surreal::init();
 
         if let Ok(_) = db.connect(get_database_address()).await {
@@ -53,10 +61,7 @@ pub fn start(runner: Res<AsyncRunner>, tasks: Tasks, mut config: ResMut<Session>
             })
             .await.unwrap();
 
-            info!("B");
             db.use_ns("test").use_db("test").await.unwrap();
-
-            info!("C");
         } else {
             info!("Failed to connect to database.");
             //return Err(anyhow!("Database hasn't been started. Please start the database."));
@@ -68,6 +73,7 @@ pub fn start(runner: Res<AsyncRunner>, tasks: Tasks, mut config: ResMut<Session>
                 id_mappings: Default::default()
             });
             state.set(DbState::Connected);
+            //info!("Set state to connected!");
         }).await.run().await;
     });
 
@@ -82,6 +88,44 @@ pub fn start(runner: Res<AsyncRunner>, tasks: Tasks, mut config: ResMut<Session>
     Ok(())
 }
 
+#[cfg(feature = "client")]
+async fn get_peer_id(api_url: String) -> Id {
+    let peer_id = match is_session(api_url.clone()).await {
+        Ok(client_id) => {
+            if client_id.is_empty() {
+                register(api_url).await.unwrap()
+            } else {
+                client_id
+            }
+        }
+        Err(err) => {
+            info!("Error grabbing session: {}", err);
+            register(api_url).await.unwrap()
+        }
+    };
+    
+    info!("Got client ID: {}", peer_id);
+    Id::from(&peer_id)
+}
+
+#[cfg(feature = "server")]
+async fn get_peer_id(api_url: String) -> Id {
+    Id::nil()
+}
+
+#[cfg(feature = "client")]
+pub async fn is_session(api_url: String) -> reqwest::Result<String> {
+    let client = reqwest::Client::new();
+    client.post(format!("{}/session", api_url)).fetch_credentials_include().send().await?.error_for_status()?.text().await
+}
+
+#[cfg(feature = "client")]
+pub async fn register(api_url: String) -> reqwest::Result<String> {
+    let client = reqwest::Client::new();
+    client.post(format!("{}/register", api_url)).fetch_credentials_include().send().await?.text().await
+}
+
+#[cfg(feature = "surrealdb")]
 fn get_database_address<'a>() -> &'a str {
     #[cfg(target_arch = "wasm32")]
     return "indxdb://MyDatabase";

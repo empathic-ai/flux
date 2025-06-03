@@ -18,6 +18,11 @@ pub struct ImageTextButton {
     pub label: String
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Component, Reflect, Reactive)]
+pub struct TextButton {
+    pub label: String
+}
+
 // TODO: Either remove or uncomment
 // Currently not in use but may be useful for converting Reflect types to JSON without using TypeRegistry
 /*

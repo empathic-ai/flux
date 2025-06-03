@@ -3,13 +3,14 @@ use std::collections::{HashMap, HashSet};
 
 use crate::prelude::*;
 
-use bevy::ecs::system::SystemParam;
+use bevy::ecs::error::HandleError;
+use bevy::ecs::system::{command, SystemParam};
 use bevy::prelude::*;
 use bevy::reflect::{DynamicEnum, ParsedPath, Reflect, ReflectFromPtr, ReflectMut, ReflectRef, Struct, TypeRegistry};
 use bevy_trait_query::All;
 
 use common::prelude::*;
-use surrealdb::sql::Uuid;
+use anyhow::{anyhow, Result};
 
 #[derive(Event, Clone)]
 pub struct OnChange {
@@ -191,7 +192,7 @@ impl<'w, 's> Bindings<'w, 's> {
         }
     }
 
-    fn apply_binding_internal(commands: &mut Commands<'w, 's>, type_registry: &mut TypeRegistry, reactives: &mut Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>, binding: Binding, changed_components: &mut HashSet<(Entity, String)>) {
+    fn apply_binding_internal(commands: &mut Commands<'w, 's>, type_registry: &mut TypeRegistry, reactives: &mut Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>, binding: Binding, changed_components: &mut HashSet<(Entity, String)>) -> Result<()> {
         //let mut binding = self.get_binding(binding_id).clone();
 
         let source_component_name = binding.get_source_component_name();
@@ -208,11 +209,17 @@ impl<'w, 's> Bindings<'w, 's> {
                           
                                 let mut target_value = if let Some(property_path) = binding.target_property_path.clone() {
                                     
-                                    let mut path = target_bindable.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()).unwrap();
-                                        path
-                                    } else {
-                                        target_bindable.as_partial_reflect_mut()
-                                    };
+                                    match target_bindable.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()) {
+                                        Ok(value) => {
+                                            value
+                                        }
+                                        Err(err) => {
+                                            return Err(anyhow!("Failed to get path in binding: {}. {}", binding.to_string(), err));
+                                        }
+                                    }
+                                } else {
+                                    target_bindable.as_partial_reflect_mut()
+                                };
 
                                 if target_value.is_dynamic() {
                                     let target_type_name = target_value.reflect_short_type_path();
@@ -290,7 +297,10 @@ impl<'w, 's> Bindings<'w, 's> {
                             if let ReflectRef::List(value) = source_value.reflect_ref() {
                                 //info!("Applying list binding: {}. Value: {:?}", binding.to_string(), source_value);
 
-                                commands.entity(target_entity.clone()).despawn_descendants();
+                                commands.entity(target_entity.clone()).despawn_related::<Children>();
+
+                                let target_component_name = binding.target_component_name.clone();
+                                let target_property_path = binding.target_property_path.clone();
 
                                 for item in value.iter() {
                                     let mut item = item;
@@ -299,12 +309,13 @@ impl<'w, 's> Bindings<'w, 's> {
                                     let source_value = item.clone_value();
             
                                     commands.entity(target_entity).add_child(child);
-
-                                    let target_component_name = binding.target_component_name.clone();
-                                    let target_property_path = binding.target_property_path.clone();
+         
+                                    let target_component_name = target_component_name.clone();
+                                    let target_property_path = target_property_path.clone();
+                                    let binding = binding.clone();
 
                                     //.add(move |id: Entity, world: &mut World| {
-                                    commands.queue(move |world: &mut World| {
+                                    let system_id = commands.register_system((move |world: &mut World| {
                                         let bindings = world.resource::<BindingsConfig>();
                                         let type_registry = &bindings.type_registry;
 
@@ -316,26 +327,50 @@ impl<'w, 's> Bindings<'w, 's> {
 
                                         if let Ok(mut component) = world.entity_mut(child).get_mut_by_id(component_id) {
                                             let mut component = unsafe { reflect_from_ptr.as_reflect_mut(component.into_inner()) };
-                                            let mut target_value = if let Some(property_path) = target_property_path {
+                                            let mut target_value = if let Some(property_path) = &target_property_path {
                                         
                                                     // TODO: run separate code
-                                                    let mut path =component.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()).unwrap();
+                                                    let mut path = component.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()).unwrap();
                                                     path
                                                 } else {
                                                     // TODO: Automatically insert entity if it doesn't yet exist (currently must be explicitly added in create function)
                                                     //world.entity_mut(child).insert_by_id(component_id, component)
                                                     component.as_partial_reflect_mut()
                                                 };
-                                                                                    
-                                            if !source_value.reflect_partial_eq(target_value.as_partial_reflect()).unwrap_or(false) {
-                                                //info!("Applying list binding for element. Value: {:?}", source_value);
-                                                target_value.apply(source_value.as_partial_reflect());
-                                            }
-                                        }
-                                    });
-                                        
-                                        //| world: &mut World| {
 
+                                            info!("{}", target_value.reflect_short_type_path());
+
+                                            // If the values aren't equal, apply the new value to the target
+                                            if !source_value.reflect_partial_eq(target_value.as_partial_reflect()).unwrap_or(false) {
+                                                /*
+                                                if target_value.reflect_short_type_path() == "Dynamic" {
+                                                    info!("IS DYNAMIC!");
+                                                    if let ReflectRef::Struct(struct_ref) = target_value.reflect_ref() {
+                                                        info!("IS STRUCT!");
+                                                    }
+                                                    if let ReflectRef::Opaque(struct_ref) = target_value.reflect_ref() {
+                                                        info!("IS OPAQUE!");
+                                                    }
+                                                    info!("Inner type: {}", target_value.get_represented_type_info().unwrap().type_path());
+                                                }*/
+
+                                                //info!("Applying list binding for element. Value: {:?}", source_value);
+                                                match target_value.try_apply(source_value.as_partial_reflect()) {
+                                                    Ok(_) => {},
+                                                    Err(err) => {
+                                                        return Err(anyhow!("Failed to apply list element value of type '{}' to type '{}'. Value: {:?}\n\n{}", source_value.reflect_type_path(), target_value.reflect_type_path(), source_value, err));
+                                                    },
+                                                }
+                                            }
+                                        } else {
+                                            return Err(anyhow!("Failed to find component '{}' for binding: {}.", target_component_name, binding.to_string()));
+                                        }
+                                        Ok(())
+                                    }));
+                                    commands.queue(command::run_system(system_id).handle_error_with(bevy::ecs::error::warn));
+                                    commands.unregister_system(system_id);
+
+                                        //| world: &mut World| {
                                             /*
 
                                             */
@@ -359,6 +394,7 @@ impl<'w, 's> Bindings<'w, 's> {
                 }
             },
         }
+        Ok(())
     }
 }
 
@@ -467,6 +503,7 @@ impl ListBinding {
 // (subsequent use of tuple works because of dynamic property binding using Box<dyn Reflect>)
 
 // Move conflicting queries into a ParamSet: https://bevy-cheatbook.github.io/programming/paramset.html
+#[cfg(feature = "bevy_ui")]
 pub fn propogate_forms(
     mut commands: Commands,
     //type_registry: Res<AppTypeRegistry>,
@@ -734,6 +771,7 @@ pub fn propogate_forms(
          */
 }
 
+#[cfg(feature = "bevy_ui")]
 pub fn process_form_on_submit(
     mut commands: Commands,
     mut ev_reader: EventReader<SubmitEvent>,

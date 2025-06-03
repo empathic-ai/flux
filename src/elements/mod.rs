@@ -52,7 +52,7 @@ pub struct Control {
     pub height: f32,
     pub fixed_width: f32,
     pub fixed_height: f32,
-    pub ExpandWidth: bool,
+    pub expand_width: bool,
     pub ExpandHeight: bool,
     pub anchor_min: Vec2,
     pub anchor_max: Vec2,
@@ -68,7 +68,7 @@ pub struct Control {
     pub UseBackground: bool,
     pub Scale: f32,
     pub ScrollTop: f32,
-    pub IsOverflow: bool,
+    pub is_overflow: bool,
     pub stretch: bool,
     pub ignore_layout: bool,
     pub use_blur: bool,
@@ -141,7 +141,7 @@ impl Default for Control {
             height: 0.0,
             fixed_width: -1.0,
             fixed_height: -1.0,
-            ExpandWidth: false,
+            expand_width: false,
             ExpandHeight: false,
             anchor_min: Vec2::new(0.5, 0.5),
             anchor_max: Vec2::new(0.5, 0.5),
@@ -156,7 +156,7 @@ impl Default for Control {
             UseBackground: false,
             Scale: 1.0,
             ScrollTop: 0.0,
-            IsOverflow: true,
+            is_overflow: true,
             stretch: false,
             ignore_layout: false,
             use_blur: false,
@@ -178,6 +178,7 @@ pub struct Container {}
 #[derive(Component, Debug)]
 pub struct VList {
     pub spacing: f32,
+    /// Sets whether flex items are forced onto one line or can wrap onto multiple lines.
     pub wrapped: bool,
     pub anchor: Anchor,
     pub stretch_children: bool,
@@ -304,6 +305,9 @@ impl Default for ImageRect {
 
 #[derive(Component, Debug)]
 pub struct VScroll {}
+
+#[derive(Component, Debug)]
+pub struct HScroll {}
 
 #[derive(Component, Debug)]
 pub struct IFrame {}

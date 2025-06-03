@@ -12,6 +12,7 @@ pub const SMALL: f32 = 25.0;
 pub const SMALL_SPACE: f32 = 15.0;
 pub const HALF_SMALL_SPACE: f32 = 7.5;
 
+#[cfg(not(feature = "embedded"))]
 lazy_static! {
     pub static ref BLUE: Color = {
         Srgba::hex("0097F2").unwrap().into()
@@ -24,6 +25,7 @@ lazy_static! {
     };
 }
 
+#[cfg(not(feature = "embedded"))]
 pub fn get_secondary_brightness(color: Color) -> f32 {
     if color == Color::WHITE {
         0.2
@@ -32,6 +34,7 @@ pub fn get_secondary_brightness(color: Color) -> f32 {
     }
 }
 
+#[cfg(not(feature = "embedded"))]
 pub fn get_secondary_color(color: Color) -> Color {
     if color == Color::WHITE {
         Color::BLACK

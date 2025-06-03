@@ -2,11 +2,11 @@ use bevy::prelude::*;
 use crate::prelude::*;
 
 pub struct FluxServerPlugin {
-    config: Session,
+    config: FluxConfig,
 }
 
 impl FluxServerPlugin {
-    pub fn new(config: Session) -> Self {
+    pub fn new(config: FluxConfig) -> Self {
         Self { config }
     }
 }

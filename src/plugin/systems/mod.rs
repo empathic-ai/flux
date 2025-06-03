@@ -6,11 +6,11 @@ use bevy::ecs::system::{EntityCommands, SystemId};
 use bevy::prelude::*;
 use bevy::reflect::TypeInfo::Struct;
 use bevy::reflect::{TypeRegistry, ReflectMut, ReflectRef};
-use bevy::utils::HashMap;
 use bevy_trait_query::All;
 
 use serde::{Deserialize, Serialize};
 use std::{any::Any, sync::Arc};
+use std::collections::HashMap;
 use std::any::TypeId;
 use common::prelude::*;
 //use bevy_cobweb::prelude::*;
@@ -28,6 +28,7 @@ pub struct UsageView {
     pub percent: f32
 }
 
+/*
 impl Bindable for UsageView {
     fn get(&self) -> Box<dyn Reflect> {
         Box::new(self.clone())
@@ -36,6 +37,7 @@ impl Bindable for UsageView {
         self.apply(value.as_partial_reflect());
     }
 }
+*/
 
 
 #[derive(Debug, Clone, Component)]
@@ -122,6 +124,7 @@ pub struct SearchInput {
     pub results: Vec<String>
 }
 
+/*
 impl Bindable for SearchInput {
     fn get(&self) -> Box<dyn Reflect> {
         Box::new(self.clone())
@@ -130,6 +133,7 @@ impl Bindable for SearchInput {
         self.apply(value.as_partial_reflect());
     }
 }
+*/
 
 #[derive(Clone, Component)]
 pub struct OnSubmit {
@@ -330,7 +334,8 @@ impl<'w, 's> CommandBuilder<'w, 's> {
          */
         self
     }
-/* 
+    
+    /* 
     pub fn with_children(mut self, ) -> Self {//&'b mut EntityCommands<'_, '_> {
         let entity_commands = self.commands.spawn((
             bundle
@@ -356,6 +361,7 @@ impl<'w, 's> CommandBuilder<'w, 's> {
     }
 }
 
+#[cfg(feature = "ui")]
 pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &BWindow)>,
     mut responsive_element_query: Query<(Entity, &mut Control, Option<&WidthLessThan>, Option<&HideOnHeightLessThan>), Without<BWindow>>) {
 
@@ -367,7 +373,7 @@ pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &B
     }
 
     if let Some(changed_size) = changed_size {
-        println!("{}", changed_size.to_string());
+        info!("Window changed size: {:?}", changed_size);
         for (entity, mut control, width_less_than, height_less_than) in responsive_element_query.iter_mut() {
             if let Some(width_less_than) = width_less_than {
                 if width_less_than.is_visible {

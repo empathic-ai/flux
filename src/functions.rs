@@ -1,6 +1,5 @@
-use std::sync::Arc;
-use bevy::{prelude::*, utils::HashMap};
-
+use std::{collections::HashMap, sync::Arc};
+use bevy::prelude::*;
 
 pub type SubmitFunc = CommandFuncWithArgs2<HashMap<String, String>>;
 
