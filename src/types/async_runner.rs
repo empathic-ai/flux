@@ -1,4 +1,5 @@
 use bevy_async_ecs::AsyncWorld;
+use bevy::prelude::*;
 
 #[derive(Resource)]
 pub struct AsyncRunner(AsyncWorld);

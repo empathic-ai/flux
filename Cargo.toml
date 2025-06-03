@@ -5,7 +5,7 @@ edition = "2024"
 exclude = ["/examples"]
 
 [features]
-default = ["bevy", "futures", "tokio"]
+default = ["bevy_std", "futures", "tokio"]
 bevy = ["dep:bevy", "flux_core/bevy", "common/bevy", "bevy-trait-query", "reflect-steroids"]
 bevy_ui = []
 dynamic_linking = ["bevy?/dynamic_linking"]
@@ -16,6 +16,7 @@ futures = ["bevy-async-ecs", "dep:futures", "futures-util", "future_handles"]
 server = []
 client = []
 surrealdb = ["dep:surrealdb"]
+bevy_std = ["bevy", "common/bevy_std", "bevy/bevy_log"]
 
 [dependencies]
 bevy = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["serialize", "bevy_state", "bevy_color"], optional = true }

@@ -12,7 +12,7 @@ use std::fmt::Debug;
 #[cfg(feature = "futures")]
 mod async_runner;
 #[cfg(feature = "futures")]
-use async_runner::*;
+pub use async_runner::*;
 
 pub mod dynamic_struct_serde;
 //pub mod dynamic_variant_serde;

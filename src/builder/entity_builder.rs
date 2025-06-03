@@ -1,4 +1,4 @@
-use bevy::{ecs::system::{EntityCommands, RunSystemOnce, SystemId}, prelude::*, reflect::ReflectKind, utils::default};
+use bevy::{ecs::{component::Mutable, system::{EntityCommands, RunSystemOnce, SystemId}}, prelude::*, reflect::ReflectKind, utils::default};
 //use bevy_cobweb_ui::prelude::*;
 //use bevy_cobweb::prelude::*;
 
@@ -19,7 +19,7 @@ impl<'a> EntityBuilder<'a> {
         }
     }
 
-    pub fn from(parent: &'a mut bevy::prelude::ChildBuilder<'_>) -> Self {
+    pub fn from(parent: &'a mut bevy::prelude::ChildSpawnerCommands<'_>) -> Self {
         let entity_commands: EntityCommands<'_> = parent.spawn_empty();
         
         Self {
@@ -370,10 +370,10 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 /* 
     pub fn with_children_builder<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(&'a mut EntityChildBuilder<'w, 's, '_>),
+        F: FnOnce(&'a mut EntityChildSpawnerCommands<'w, 's, '_>),
     {
-        self.entity_commands.with_children(|parent: &'a mut ChildBuilder<'w, 's, '_>| {
-            let mut child_builder: EntityChildBuilder<'w, 's, '_> = EntityChildBuilder::new(parent);
+        self.entity_commands.with_children(|parent: &'a mut ChildSpawnerCommands<'w, 's, '_>| {
+            let mut child_builder: EntityChildSpawnerCommands<'w, 's, '_> = EntityChildSpawnerCommands::new(parent);
             f(&mut child_builder);
         });
 
@@ -510,10 +510,10 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 
     fn entity_with_children<F>(&mut self, f: F) -> &mut Self
     where
-        F: FnOnce(Entity, &mut ChildBuilder<'_>),
+        F: FnOnce(Entity, &mut ChildSpawnerCommands<'_>),
     {
         let entity = self.get_commands().id();
-        self.get_commands().with_children(|parent: &mut ChildBuilder<'_>| {
+        self.get_commands().with_children(|parent: &mut ChildSpawnerCommands<'_>| {
             f(entity, parent);
         });
         self
@@ -521,7 +521,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 
     fn with_children<F>(&mut self, f: F) -> &mut Self
     where
-        F: FnOnce(&mut ChildBuilder<'_>),
+        F: FnOnce(&mut ChildSpawnerCommands<'_>),
     {
         self.get_commands().with_children(f);
         self
@@ -767,18 +767,14 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }    
 
-    fn upsert<T, F>(&mut self, f: F) -> &mut Self where F: FnOnce(&mut T) + Send + 'static, T: Default + Component {
-        self.get_commands().queue(move |entity: EntityWorldMut| {
-            let mut comp = world.get_mut::<T>(entity);
+    fn upsert<T, F>(&mut self, f: F) -> &mut Self where F: FnOnce(&mut T) + Send + 'static, T: Default + Component<Mutability = Mutable>  {
+        self.get_commands().queue(move |mut entity_world: EntityWorldMut| {
+            let mut comp = entity_world.get_mut::<T>();
             if comp.is_none() {
                 comp = None;
-                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                    let x: T = std::default::Default::default();
-                    entity_mut.insert(
-                       x
-                    );
-                    comp = world.get_mut::<T>(entity);
-                }
+                let x: T = std::default::Default::default();
+                entity_world.insert(x);
+                comp = entity_world.get_mut::<T>();
             }
 
             if let Some(mut comp) = comp {

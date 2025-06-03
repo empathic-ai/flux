@@ -8,7 +8,7 @@ pub trait ChildTrait<'a> {
     fn child(&'a mut self)  -> EntityBuilder<'a>;
 }
 
-impl<'a> ChildTrait<'a> for ChildBuilder<'_> {
+impl<'a> ChildTrait<'a> for ChildSpawnerCommands<'_> {
     fn child(&'a mut self) -> EntityBuilder<'a> {
         let entity_commands: EntityCommands<'_> = self.spawn(Control {
             ..default()
@@ -65,12 +65,12 @@ impl<'w, 's, 'a> CommandsChildTrait<'w, 's, 'a> for Commands<'w, 's> {
     }
 }
 
-pub struct EntityChildBuilder<'a> {
-    child_builder: &'a mut ChildBuilder<'a>,
+pub struct EntityChildSpawnerCommands<'a> {
+    child_builder: &'a mut ChildSpawnerCommands<'a>,
 }
 
-impl<'a> EntityChildBuilder<'a> {
-    pub fn new(child_builder: &'a mut ChildBuilder<'a>) -> Self {
+impl<'a> EntityChildSpawnerCommands<'a> {
+    pub fn new(child_builder: &'a mut ChildSpawnerCommands<'a>) -> Self {
         Self { 
             child_builder: child_builder, 
             //custom_steps: Vec::new(),
