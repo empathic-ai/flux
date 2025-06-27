@@ -361,7 +361,6 @@ impl<'w, 's> CommandBuilder<'w, 's> {
     }
 }
 
-#[cfg(feature = "bevy_ui")]
 pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &BWindow)>,
     mut responsive_element_query: Query<(Entity, &mut Control, Option<&WidthLessThan>, Option<&HideOnHeightLessThan>), Without<BWindow>>) {
 
@@ -373,7 +372,7 @@ pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &B
     }
 
     if let Some(changed_size) = changed_size {
-        info!("Window changed size: {:?}", changed_size);
+        //info!("Window changed size: {:?}", changed_size);
         for (entity, mut control, width_less_than, height_less_than) in responsive_element_query.iter_mut() {
             if let Some(width_less_than) = width_less_than {
                 if width_less_than.is_visible {

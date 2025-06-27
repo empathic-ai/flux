@@ -89,6 +89,8 @@ pub fn start(config: Res<FluxConfig>, runner: Res<AsyncRunner>, tasks: Tasks) ->
     Ok(())
 }
 
+// TODO: Rework to suport dual mode. Cannot be dependent on cfg features
+/*
 #[cfg(feature = "client")]
 async fn get_peer_id(api_url: String) -> Id {
     let peer_id = match is_session(api_url.clone()).await {
@@ -133,4 +135,4 @@ fn get_database_address<'a>() -> &'a str {
     #[cfg(not(target_arch = "wasm32"))]
     #[cfg(feature = "server")]
     return "ws://localhost:7777";
-}
+} */

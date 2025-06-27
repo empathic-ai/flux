@@ -109,7 +109,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             parent.spawn((
                 Control {
                     expand_width: true,
-                    ExpandHeight: true,
+                    expand_height: true,
                     //FixedWidth: 285.0,
                     //fixed_height: 285.0,
                     BorderRadius: Vec4::splat(5.0),
@@ -144,7 +144,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             //parent.child().fixed_width(7.5*size);
             parent.child().insert((
                 ImageRect {
-                    image: "assets/icons/Empathic Title.webp".to_string(),
+                    image: "assets/images/Empathic Title.webp".to_string(),
                     brightness: brightness,
                     ..default()
                 },
@@ -420,8 +420,8 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self.upsert(|comp: &mut Button| {}).upsert(|comp: &mut InteractState| {}).bind_property_with_func(Some(entity), "is_hovering",
         SetPropertyFunc::new(move|commands, _entity, reflect| {
             if let Ok(value) = reflect.downcast::<bool>() {
-                commands.entity(entity).builder().upsert(move |comp: &mut Control| {
-                    comp.Scale = if *value { 1.005 } else { 0.995 }
+                commands.entity(entity).builder().upsert(move |comp: &mut Transform| {
+                    comp.scale = Vec3::ONE * if *value { 1.005 } else { 0.995 }
                 });
             }
         }))
@@ -435,8 +435,8 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self.upsert(|comp: &mut Button| {}).upsert(|comp: &mut InteractState| {}).bind_property_with_func(Some(entity), "is_clicking",
         SetPropertyFunc::new(move|commands, _entity, reflect| {
             if let Ok(value) = reflect.downcast::<bool>() {
-                commands.entity(entity).builder().upsert(move |comp: &mut Control| {
-                    comp.Scale = if *value { 1.005 } else { 0.995 }
+                commands.entity(entity).builder().upsert(move |comp: &mut Transform| {
+                    comp.scale = Vec3::ONE * if *value { 1.005 } else { 0.995 };
                 });
             }
         }))
@@ -640,6 +640,12 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
 
+    fn scale(&mut self, scale: Vec3) -> &mut Self {
+        self.upsert(move |comp: &mut Transform| {
+            comp.scale = scale;
+        })
+    }
+
     fn form(&mut self) -> &mut Self {
         self.insert(
             Form { ..default() }
@@ -739,7 +745,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     fn flexible_v_line(&mut self) -> &mut Self {
         self.insert((
             Control {
-                ExpandHeight: true,
+                expand_height: true,
                 fixed_width: 1.0,
                 BorderRadius: Vec4::splat(1.0),
                 ..default()
@@ -906,7 +912,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 
     fn expand_height(&mut self) -> &mut Self {
         self.upsert(move |comp: &mut Control| {
-            comp.ExpandHeight = true;
+            comp.expand_height = true;
         })
     }    
 
@@ -1123,7 +1129,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             BackgroundColor(Srgba::hex("b1acff").unwrap().into())
         )).with_children(|parent| {
             fill_entity = Some(parent.spawn((
-                Control { fixed_width: 270.0*0.5, ExpandHeight: true, BorderRadius: Vec4::splat(SMALL_SPACE/2.0), ..default() },
+                Control { fixed_width: 270.0*0.5, expand_height: true, BorderRadius: Vec4::splat(SMALL_SPACE/2.0), ..default() },
                 BackgroundColor(Srgba::hex("625AFAFF").unwrap().into()),
                 Shadow {}
             )).id());

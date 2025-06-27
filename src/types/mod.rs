@@ -10,12 +10,16 @@ use crate::prelude::*;
 use std::fmt::Debug;
 
 #[cfg(feature = "futures")]
+mod config;
+#[cfg(feature = "futures")]
+pub use config::*;
+
+#[cfg(feature = "futures")]
 mod async_runner;
 #[cfg(feature = "futures")]
 pub use async_runner::*;
 
 pub mod dynamic_struct_serde;
-//pub mod dynamic_variant_serde;
 
 pub trait FluxRecord = Component<Mutability = Mutable> + Reflect + PartialReflect + Typed + Clone + Debug + Reactive + GetTypeRegistration + Serialize + DeserializeOwned;
 
@@ -41,22 +45,6 @@ pub enum NetworkState {
     Connected
 }
 
-#[derive(Resource, Clone)]
-pub struct FluxConfig {
-    api_url: String
-}
-
-impl FluxConfig {
-    pub fn new(api_url: String) -> Self {
-        Self {
-            api_url
-        }
-    }
-
-    pub fn get_api_url(&self) -> String {
-        self.api_url.clone()
-    }
-}
 
 /*
 #[cfg(feature = "bevy")]
@@ -189,7 +177,7 @@ impl GetTypeRegistration for Dynamic {
         todo!()
     }
 } */
- */
+*/
 
 #[derive(Event, Clone)]
 pub struct DbRequestEvent {
@@ -244,10 +232,8 @@ impl NetworkEvent {
 }
 
 #[cfg_attr(feature = "bevy", derive(Reflect))]
-#[cfg_attr(feature = "prost", derive(::prost::Message))]
-#[derive(Clone, PartialEq, Hash, Eq, Default, Debug, Reactive)] //::prost::Message,
+#[derive(Clone, PartialEq, Hash, Eq, Default, Debug, Reactive)]
 pub struct Id {
-    //#[prost(string, tag = "1")]
     pub id: String
 }
 

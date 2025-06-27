@@ -44,6 +44,7 @@ pub struct StripePaymentElement {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
+#[require(Node)]
 pub struct Control {
     pub name: String,
     pub Type: String,
@@ -53,7 +54,7 @@ pub struct Control {
     pub fixed_width: f32,
     pub fixed_height: f32,
     pub expand_width: bool,
-    pub ExpandHeight: bool,
+    pub expand_height: bool,
     pub anchor_min: Vec2,
     pub anchor_max: Vec2,
     pub LocalPosition: Vec2,
@@ -66,7 +67,6 @@ pub struct Control {
     pub FitHeight: bool,
     pub FitWidth: bool,
     pub UseBackground: bool,
-    pub Scale: f32,
     pub ScrollTop: f32,
     pub is_overflow: bool,
     pub stretch: bool,
@@ -142,7 +142,7 @@ impl Default for Control {
             fixed_width: -1.0,
             fixed_height: -1.0,
             expand_width: false,
-            ExpandHeight: false,
+            expand_height: false,
             anchor_min: Vec2::new(0.5, 0.5),
             anchor_max: Vec2::new(0.5, 0.5),
             LocalPosition: Vec2::new(0.0, 0.0),
@@ -154,7 +154,6 @@ impl Default for Control {
             FitWidth: false,
             FitHeight: false,
             UseBackground: false,
-            Scale: 1.0,
             ScrollTop: 0.0,
             is_overflow: true,
             stretch: false,
@@ -275,6 +274,7 @@ impl Default for HList {
 pub struct Shadow {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
+#[require(Node)]
 pub struct ImageRect {
     pub image: String,
     pub data: Vec<u8>,

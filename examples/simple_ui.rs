@@ -1,4 +1,3 @@
-#[cfg(feature = "bevy_ui")]
 mod main {
   use bevy::prelude::*;
   use flux::prelude::*;
@@ -20,6 +19,5 @@ mod main {
 }
 
 fn main() {
-  #[cfg(feature = "bevy_ui")]
   main::main();
 }

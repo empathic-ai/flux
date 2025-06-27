@@ -1,4 +1,3 @@
-#![allow(warnings)]
 use std::{env, fs, path::{Path, PathBuf}};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {

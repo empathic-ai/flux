@@ -199,195 +199,201 @@ impl<'w, 's> Bindings<'w, 's> {
   
         match binding {
             Binding::Path(binding) => {
-                if let Some(source_entity) = binding.source_entity && let Some(target_entity) = binding.target_entity {
-     
-                    if let Some(mut source_value) = Self::get_source_value(reactives, source_entity, binding.source_component_name.clone(), binding.source_property_path.clone()) {
-                        if let Ok((_, mut reactives)) = reactives.get_mut(target_entity) {
+                    if let Some(source_entity) = binding.source_entity {
+                        if let Some(target_entity) = binding.target_entity {
+        
+                        if let Some(mut source_value) = Self::get_source_value(reactives, source_entity, binding.source_component_name.clone(), binding.source_property_path.clone()) {
+                            if let Ok((_, mut reactives)) = reactives.get_mut(target_entity) {
 
-                            let target_component_name = binding.target_component_name.clone();
-                            if let Some(mut target_bindable) = reactives.iter_mut().find(|x| x.reflect_short_type_path() == target_component_name) {
-                          
-                                let mut target_value = if let Some(property_path) = binding.target_property_path.clone() {
-                                    
-                                    match target_bindable.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()) {
-                                        Ok(value) => {
-                                            value
-                                        }
-                                        Err(err) => {
-                                            return Err(anyhow!("Failed to get path in binding: {}. {}", binding.to_string(), err));
-                                        }
-                                    }
-                                } else {
-                                    target_bindable.as_partial_reflect_mut()
-                                };
-
-                                if target_value.is_dynamic() {
-                                    let target_type_name = target_value.reflect_short_type_path();
-                                    //info!("Target type: {}", target_type_name);
-                                    let type_registration = type_registry.get_with_short_type_path_mut(target_type_name).unwrap();
-    
-                                    let reflect_from_reflect = type_registration
-                                    .data::<ReflectFromReflect>()
-                                    .expect("`ReflectFromReflect` should be registered");
-    
-                                    let source_value = reflect_from_reflect
-                                    .from_reflect(source_value.as_ref())
-                                    .unwrap();
-                                    
-                                    if !target_value.reflect_partial_eq(source_value.as_partial_reflect()).unwrap_or(false) {
-                                        //info!("Applying path binding: {}. Value: {:?}", binding.to_string(), source_value);
-
-                                        //info!("Value: {:?}", source_value);
-            
-                                        target_value.try_as_reflect_mut().unwrap().set(source_value);
-
-                                        //info!("New value: {:?}", target_value);
+                                let target_component_name = binding.target_component_name.clone();
+                                if let Some(mut target_bindable) = reactives.iter_mut().find(|x| x.reflect_short_type_path() == target_component_name) {
+                            
+                                    let mut target_value = if let Some(property_path) = binding.target_property_path.clone() {
                                         
-                                        changed_components.insert((target_entity, target_component_name));
-                                    }
-                                } else {
-                                   
-                                    //info!("Source type: {}", source_value.reflect_short_type_path());
-                                    //info!("Target type: {}", target_value.reflect_short_type_path());
-
-                                    let is_option = if let Some(type_info) = source_value.get_represented_type_info() {
-                                        type_info.is::<Option<String>>()
+                                        match target_bindable.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()) {
+                                            Ok(value) => {
+                                                value
+                                            }
+                                            Err(err) => {
+                                                return Err(anyhow!("Failed to get path in binding: {}. {}", binding.to_string(), err));
+                                            }
+                                        }
                                     } else {
-                                        false
+                                        target_bindable.as_partial_reflect_mut()
                                     };
-                                    
-                                    let is_option = source_value.represents::<Option<String>>();
-                                    let different_types = source_value.reflect_short_type_path() != target_value.reflect_short_type_path();
-                                    
-                                    if is_option && different_types && let ReflectRef::Enum(dyn_enum) = source_value.reflect_ref() {
-                                        if let Some(value) = dyn_enum.field_at(0) {
-                                            source_value = value.clone_value();
-                                        }
-                                    }
-            
-                                    if !target_value.reflect_partial_eq(source_value.as_partial_reflect()).unwrap_or(false) {
-                                        //info!("Applying path binding: {}. Value: {:?}", binding.to_string(), source_value);
 
-                                        //info!("Value: {:?}", source_value);
-            
-                                        target_value.apply(source_value.as_ref());
-
-                                        //info!("New value: {:?}", target_value);
+                                    if target_value.is_dynamic() {
+                                        let target_type_name = target_value.reflect_short_type_path();
+                                        //info!("Target type: {}", target_type_name);
+                                        let type_registration = type_registry.get_with_short_type_path_mut(target_type_name).unwrap();
+        
+                                        let reflect_from_reflect = type_registration
+                                        .data::<ReflectFromReflect>()
+                                        .expect("`ReflectFromReflect` should be registered");
+        
+                                        let source_value = reflect_from_reflect
+                                        .from_reflect(source_value.as_ref())
+                                        .unwrap();
                                         
-                                        changed_components.insert((target_entity, target_component_name));
+                                        if !target_value.reflect_partial_eq(source_value.as_partial_reflect()).unwrap_or(false) {
+                                            //info!("Applying path binding: {}. Value: {:?}", binding.to_string(), source_value);
+
+                                            //info!("Value: {:?}", source_value);
+                
+                                            target_value.try_as_reflect_mut().unwrap().set(source_value);
+
+                                            //info!("New value: {:?}", target_value);
+                                            
+                                            changed_components.insert((target_entity, target_component_name));
+                                        }
+                                    } else {
+                                    
+                                        //info!("Source type: {}", source_value.reflect_short_type_path());
+                                        //info!("Target type: {}", target_value.reflect_short_type_path());
+
+                                        let is_option = if let Some(type_info) = source_value.get_represented_type_info() {
+                                            type_info.is::<Option<String>>()
+                                        } else {
+                                            false
+                                        };
+                                        
+                                        let is_option = source_value.represents::<Option<String>>();
+                                        let different_types = source_value.reflect_short_type_path() != target_value.reflect_short_type_path();
+                                        
+                                        if is_option && different_types {
+                                            if let ReflectRef::Enum(dyn_enum) = source_value.reflect_ref() {
+                                                if let Some(value) = dyn_enum.field_at(0) {
+                                                    source_value = value.clone_value();
+                                                }
+                                            }
+                                        }
+                
+                                        if !target_value.reflect_partial_eq(source_value.as_partial_reflect()).unwrap_or(false) {
+                                            //info!("Applying path binding: {}. Value: {:?}", binding.to_string(), source_value);
+
+                                            //info!("Value: {:?}", source_value);
+                
+                                            target_value.apply(source_value.as_ref());
+
+                                            //info!("New value: {:?}", target_value);
+                                            
+                                            changed_components.insert((target_entity, target_component_name));
+                                        }
                                     }
                                 }
                             }
+                        } else {
+                            //info!("Attempted to apply path binding but failed to get source value: {}", binding.to_string());
                         }
-                    } else {
-                        //info!("Attempted to apply path binding but failed to get source value: {}", binding.to_string());
                     }
                 } else {
                     //info!("Attempted to apply path binding but target or source is missing: {}", binding.to_string());
                 }
             },
             Binding::List(binding) => {
-                if let Some(source_entity) = binding.source_entity && let Some(target_entity) = binding.target_entity {
+                if let Some(source_entity) = binding.source_entity {
+                    if let Some(target_entity) = binding.target_entity {
  
-                    if let Some(source_value) = Self::get_source_value(reactives, source_entity, binding.source_component_name.clone(), binding.source_property_path.clone()) {
-                        //if let Ok((_, mut reactives, children)) = reactives.get_mut(target_entity) {
+                        if let Some(source_value) = Self::get_source_value(reactives, source_entity, binding.source_component_name.clone(), binding.source_property_path.clone()) {
+                            //if let Ok((_, mut reactives, children)) = reactives.get_mut(target_entity) {
 
-                            if let ReflectRef::Array(value) = source_value.reflect_ref() {
-                            }
-                            if let ReflectRef::List(value) = source_value.reflect_ref() {
-                                //info!("Applying list binding: {}. Value: {:?}", binding.to_string(), source_value);
-
-                                commands.entity(target_entity.clone()).despawn_related::<Children>();
-
-                                let target_component_name = binding.target_component_name.clone();
-                                let target_property_path = binding.target_property_path.clone();
-
-                                for item in value.iter() {
-                                    let mut item = item;
-    
-                                    let child = binding.create_entity_func.as_ref().unwrap().call(commands);
-                                    let source_value = item.clone_value();
-            
-                                    commands.entity(target_entity).add_child(child);
-         
-                                    let target_component_name = target_component_name.clone();
-                                    let target_property_path = target_property_path.clone();
-                                    let binding = binding.clone();
-
-                                    //.add(move |id: Entity, world: &mut World| {
-                                    let system_id = commands.register_system((move |world: &mut World| {
-                                        let bindings = world.resource::<BindingsConfig>();
-                                        let type_registry = &bindings.type_registry;
-
-                                        let type_registration = type_registry.get_with_short_type_path(&target_component_name).expect(&format!("Failed to get type info for component named '{}'!", target_component_name));
-
-                                        let reflect_from_ptr = type_registration.data::<ReflectFromPtr>().unwrap().clone();
-
-                                        let component_id = world.components().get_id(type_registration.type_id()).unwrap();
-
-                                        if let Ok(mut component) = world.entity_mut(child).get_mut_by_id(component_id) {
-                                            let mut component = unsafe { reflect_from_ptr.as_reflect_mut(component.into_inner()) };
-                                            let mut target_value = if let Some(property_path) = &target_property_path {
-                                        
-                                                    // TODO: run separate code
-                                                    let mut path = component.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()).unwrap();
-                                                    path
-                                                } else {
-                                                    // TODO: Automatically insert entity if it doesn't yet exist (currently must be explicitly added in create function)
-                                                    //world.entity_mut(child).insert_by_id(component_id, component)
-                                                    component.as_partial_reflect_mut()
-                                                };
-
-                                            info!("{}", target_value.reflect_short_type_path());
-
-                                            // If the values aren't equal, apply the new value to the target
-                                            if !source_value.reflect_partial_eq(target_value.as_partial_reflect()).unwrap_or(false) {
-                                                /*
-                                                if target_value.reflect_short_type_path() == "Dynamic" {
-                                                    info!("IS DYNAMIC!");
-                                                    if let ReflectRef::Struct(struct_ref) = target_value.reflect_ref() {
-                                                        info!("IS STRUCT!");
-                                                    }
-                                                    if let ReflectRef::Opaque(struct_ref) = target_value.reflect_ref() {
-                                                        info!("IS OPAQUE!");
-                                                    }
-                                                    info!("Inner type: {}", target_value.get_represented_type_info().unwrap().type_path());
-                                                }*/
-
-                                                //info!("Applying list binding for element. Value: {:?}", source_value);
-                                                match target_value.try_apply(source_value.as_partial_reflect()) {
-                                                    Ok(_) => {},
-                                                    Err(err) => {
-                                                        return Err(anyhow!("Failed to apply list element value of type '{}' to type '{}'. Value: {:?}\n\n{}", source_value.reflect_type_path(), target_value.reflect_type_path(), source_value, err));
-                                                    },
-                                                }
-                                            }
-                                        } else {
-                                            return Err(anyhow!("Failed to find component '{}' for binding: {}.", target_component_name, binding.to_string()));
-                                        }
-                                        Ok(())
-                                    }));
-                                    commands.queue(command::run_system(system_id).handle_error_with(bevy::ecs::error::warn));
-                                    commands.unregister_system(system_id);
-
-                                        //| world: &mut World| {
-                                            /*
-
-                                            */
-                                        //});
-
-                                            //if let Some(mut bindable_property) = world.entity_mut(child).get_mut::<AutoBindableProperty>() {
-                                                // TODO: run separate code
-                                            //}
-                                            //if !is_value {
-                                            //world.entity_mut(child).insert(BindableChanged {});
-                                        //});
+                                if let ReflectRef::Array(value) = source_value.reflect_ref() {
                                 }
-                                //commands.entity(entity).remove::<AutoBindableList>();
-                            }
-                        //}
-                    } else {
-                        //info!("Attempted to apply binding but failed to get source value.");
+                                if let ReflectRef::List(value) = source_value.reflect_ref() {
+                                    //info!("Applying list binding: {}. Value: {:?}", binding.to_string(), source_value);
+
+                                    commands.entity(target_entity.clone()).despawn_related::<Children>();
+
+                                    let target_component_name = binding.target_component_name.clone();
+                                    let target_property_path = binding.target_property_path.clone();
+
+                                    for item in value.iter() {
+                                        let mut item = item;
+        
+                                        let child = binding.create_entity_func.as_ref().unwrap().call(commands);
+                                        let source_value = item.clone_value();
+                
+                                        commands.entity(target_entity).add_child(child);
+            
+                                        let target_component_name = target_component_name.clone();
+                                        let target_property_path = target_property_path.clone();
+                                        let binding = binding.clone();
+
+                                        //.add(move |id: Entity, world: &mut World| {
+                                        let system_id = commands.register_system((move |world: &mut World| {
+                                            let bindings = world.resource::<BindingsConfig>();
+                                            let type_registry = &bindings.type_registry;
+
+                                            let type_registration = type_registry.get_with_short_type_path(&target_component_name).expect(&format!("Failed to get type info for component named '{}'!", target_component_name));
+
+                                            let reflect_from_ptr = type_registration.data::<ReflectFromPtr>().unwrap().clone();
+
+                                            let component_id = world.components().get_id(type_registration.type_id()).unwrap();
+
+                                            if let Ok(mut component) = world.entity_mut(child).get_mut_by_id(component_id) {
+                                                let mut component = unsafe { reflect_from_ptr.as_reflect_mut(component.into_inner()) };
+                                                let mut target_value = if let Some(property_path) = &target_property_path {
+                                            
+                                                        // TODO: run separate code
+                                                        let mut path = component.reflect_path_mut(&ParsedPath::parse(&property_path).unwrap()).unwrap();
+                                                        path
+                                                    } else {
+                                                        // TODO: Automatically insert entity if it doesn't yet exist (currently must be explicitly added in create function)
+                                                        //world.entity_mut(child).insert_by_id(component_id, component)
+                                                        component.as_partial_reflect_mut()
+                                                    };
+
+                                                info!("{}", target_value.reflect_short_type_path());
+
+                                                // If the values aren't equal, apply the new value to the target
+                                                if !source_value.reflect_partial_eq(target_value.as_partial_reflect()).unwrap_or(false) {
+                                                    /*
+                                                    if target_value.reflect_short_type_path() == "Dynamic" {
+                                                        info!("IS DYNAMIC!");
+                                                        if let ReflectRef::Struct(struct_ref) = target_value.reflect_ref() {
+                                                            info!("IS STRUCT!");
+                                                        }
+                                                        if let ReflectRef::Opaque(struct_ref) = target_value.reflect_ref() {
+                                                            info!("IS OPAQUE!");
+                                                        }
+                                                        info!("Inner type: {}", target_value.get_represented_type_info().unwrap().type_path());
+                                                    }*/
+
+                                                    //info!("Applying list binding for element. Value: {:?}", source_value);
+                                                    match target_value.try_apply(source_value.as_partial_reflect()) {
+                                                        Ok(_) => {},
+                                                        Err(err) => {
+                                                            return Err(anyhow!("Failed to apply list element value of type '{}' to type '{}'. Value: {:?}\n\n{}", source_value.reflect_type_path(), target_value.reflect_type_path(), source_value, err));
+                                                        },
+                                                    }
+                                                }
+                                            } else {
+                                                return Err(anyhow!("Failed to find component '{}' for binding: {}.", target_component_name, binding.to_string()));
+                                            }
+                                            Ok(())
+                                        }));
+                                        commands.queue(command::run_system(system_id).handle_error_with(bevy::ecs::error::warn));
+                                        commands.unregister_system(system_id);
+
+                                            //| world: &mut World| {
+                                                /*
+
+                                                */
+                                            //});
+
+                                                //if let Some(mut bindable_property) = world.entity_mut(child).get_mut::<AutoBindableProperty>() {
+                                                    // TODO: run separate code
+                                                //}
+                                                //if !is_value {
+                                                //world.entity_mut(child).insert(BindableChanged {});
+                                            //});
+                                    }
+                                    //commands.entity(entity).remove::<AutoBindableList>();
+                                }
+                            //}
+                        } else {
+                            //info!("Attempted to apply binding but failed to get source value.");
+                        }
                     }
                 } else {
                     //info!("Attempted to apply binding but target or source is missing.");
@@ -503,7 +509,6 @@ impl ListBinding {
 // (subsequent use of tuple works because of dynamic property binding using Box<dyn Reflect>)
 
 // Move conflicting queries into a ParamSet: https://bevy-cheatbook.github.io/programming/paramset.html
-#[cfg(feature = "bevy_ui")]
 pub fn propogate_forms(
     mut commands: Commands,
     //type_registry: Res<AppTypeRegistry>,
@@ -771,11 +776,10 @@ pub fn propogate_forms(
          */
 }
 
-#[cfg(feature = "bevy_ui")]
 pub fn process_form_on_submit(
     mut commands: Commands,
     mut ev_reader: EventReader<SubmitEvent>,
-    mut struct_query: Query<(Entity, All<&mut dyn Bindable>)>,
+    mut struct_query: Query<(Entity, All<&mut dyn Reactive>)>,
     input_query: Query<(&InputField, &AutoBindableProperty), (Changed<InputField>)>,
     mut form_query: Query<(Entity, Option<&OnSubmit>)>,
 ) {
@@ -784,8 +788,7 @@ pub fn process_form_on_submit(
             if let Ok((entity, bindables)) = struct_query.get_mut(entity) {
                 for mut bindable in bindables {
     
-                    let mut reflect = bindable.get();
-                    let reflect_ref = reflect.reflect_mut();
+                    let reflect_ref = bindable.reflect_mut();
         
                     if let Some(property_path) = bindable_property.property_path.as_ref() {
                         if let ReflectMut::Struct(value) = reflect_ref {
@@ -794,7 +797,6 @@ pub fn process_form_on_submit(
                             }
                         }
                     }
-                    bindable.set(reflect);
                 }
             }
         }

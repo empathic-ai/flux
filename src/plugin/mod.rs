@@ -16,6 +16,7 @@ use bevy::{prelude::*, reflect::DynamicStruct};
 use crate::prelude::*;
 
 use common::prelude::*;
+use bevy_simple_subsecond_system::prelude::*;
 
 #[derive(Resource, Clone)]
 pub struct Session {
@@ -77,7 +78,8 @@ impl Plugin for FluxPlugin {
             .insert_resource(self.config.clone())
             .add_event::<NetworkEvent>()
             .add_event::<PeerEvent>()
-            .add_systems(Update, (relay_network_events).run_if(in_state(DbState::Connected)));
+            .add_systems(Update, (relay_network_events).run_if(in_state(DbState::Connected)))
+            .add_plugins(SimpleSubsecondPlugin::default());
 
         #[cfg(feature = "surrealdb")]
         app
