@@ -1,7 +1,9 @@
-//#![allow(warnings)]
-//#![allow(unused)]
-//#![feature(let_chains)]
+#![allow(warnings)]
+#![feature(let_chains)]
 #![feature(trait_alias)]
+#![feature(string_remove_matches)]
+#![feature(must_not_suspend)]
+#![warn(must_not_suspend)]
 
 #[cfg(feature = "tonic")]
 pub mod service {
@@ -19,7 +21,9 @@ pub mod server;
 pub mod client;
 
 pub mod binding;
+#[cfg(feature = "bevy_std")]
 pub mod builder;
+#[cfg(feature = "bevy_std")]
 pub mod elements;
 
 pub mod constants;
@@ -35,7 +39,9 @@ pub mod prelude {
 	pub use flux_derive::*;
 	pub use flux_core::prelude::*;
 	pub use crate::binding::*;
+	#[cfg(feature = "bevy_std")]
 	pub use crate::builder::*;
+	#[cfg(feature = "bevy_std")]
 	pub use crate::elements::*;
 	pub use crate::constants::*;
 	pub use crate::functions::*;

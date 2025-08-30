@@ -4,14 +4,10 @@ use bevy::{ecs::component::Mutable, reflect::{DynamicStruct, DynamicTyped, GetTy
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use smart_clone::SmartClone;
 use uuid::Uuid;
-use anyhow::{Result, anyhow};
-use std::fmt::Display;
 use crate::prelude::*;
-use std::fmt::Debug;
+use std::{fmt::Debug, str::FromStr};
 
-#[cfg(feature = "futures")]
 mod config;
-#[cfg(feature = "futures")]
 pub use config::*;
 
 #[cfg(feature = "futures")]
@@ -19,9 +15,14 @@ mod async_runner;
 #[cfg(feature = "futures")]
 pub use async_runner::*;
 
+#[cfg(feature = "futures")]
+mod in_option;
+#[cfg(feature = "futures")]
+pub use in_option::*;
+
 pub mod dynamic_struct_serde;
 
-pub trait FluxRecord = Component<Mutability = Mutable> + Reflect + PartialReflect + Typed + Clone + Debug + Reactive + GetTypeRegistration + Serialize + DeserializeOwned;
+pub trait FluxRecord = Component<Mutability = Mutable> + Struct + Reflect + PartialReflect + Typed + Clone + Debug + Reactive + GetTypeRegistration + Serialize + DeserializeOwned;
 
 #[derive(Event)]
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -45,6 +46,20 @@ pub enum NetworkState {
     Connected
 }
 
+
+/// This is a placeholder comment.
+#[derive(Reflect, Event, SmartClone)]
+#[derive(documented::Documented, serde::Serialize, serde::Deserialize)]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Debug)]
+pub struct AddComponentEvent {
+    pub entity_id: Option<Id>,
+    pub component_type: String,
+    #[clone(clone_with = "DynamicStruct::clone_dynamic")]
+    #[serde(with = "dynamic_struct_serde")]
+    #[reflect(ignore)]
+    pub component: DynamicStruct,
+}
 
 /*
 #[cfg(feature = "bevy")]
@@ -232,24 +247,28 @@ impl NetworkEvent {
 }
 
 #[cfg_attr(feature = "bevy", derive(Reflect))]
-#[derive(Clone, PartialEq, Hash, Eq, Default, Debug, Reactive)]
+#[derive(Clone, Copy, PartialEq, Hash, Eq, Default, Debug, Reactive)]
 pub struct Id {
-    pub id: String
+    id: Uuid
 }
 
 impl Id {
     pub fn new() -> Self {
-        return Self::from(&Uuid::new_v4().to_string());
+        return Self { id: Uuid::new_v4() };
     }
 
     pub fn nil() -> Self {
-        return Self::from(&Uuid::nil().to_string());
+        return Self { id: Uuid::nil() };
     }
 
     pub fn from(text: &str) -> Self {
-        return Self {
-            id: text.replace("-", "")
-        }
+        Self { id: Uuid::from_str(text).unwrap() }
+    }
+
+    pub fn to_pretty_string(&self) -> String {
+        let mut pretty_string = self.id.to_string();
+        pretty_string.remove_matches("-");
+        pretty_string
     }
 }
 
@@ -258,7 +277,7 @@ impl Serialize for Id {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.id)
+        serializer.serialize_str(&self.id.to_string())
     }
 }
 
@@ -268,18 +287,21 @@ impl<'de> Deserialize<'de> for Id {
         D: Deserializer<'de>,
     {
         let id = String::deserialize(deserializer)?;
-        Ok(Id { id })
+        Ok(Id::from(&id))
     }
 }
 
 impl std::fmt::Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if f.alternate() {
-            // Full UUID when used with "{:#}"
-            write!(f, "{}", self.id)
+            // Short UUID when used with "{:#}"
+            write!(f, "{}", &self.to_pretty_string()[..4])
         } else {
-            // Short UUID when used with "{}"
-            write!(f, "{}", &self.id[..4])
+            // Full UUID when used with "{}"
+            let mut pretty_string = self.id.to_string();
+            pretty_string.remove_matches("-");
+        
+            write!(f, "{}", pretty_string)
         }
     }
 }

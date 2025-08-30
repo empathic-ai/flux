@@ -361,6 +361,7 @@ impl<'w, 's> CommandBuilder<'w, 's> {
     }
 }
 
+#[cfg(feature = "bevy_std")]
 pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &BWindow)>,
     mut responsive_element_query: Query<(Entity, &mut Control, Option<&WidthLessThan>, Option<&HideOnHeightLessThan>), Without<BWindow>>) {
 

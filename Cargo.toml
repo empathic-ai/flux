@@ -11,19 +11,18 @@ bevy_ui = []
 dynamic_linking = ["bevy?/dynamic_linking"]
 tonic = ["dep:tonic", "prost"]
 prost = ["dep:prost", "prost-types"]
-tokio = ["bevy-wasm-tasks"]
+tokio = ["common/tokio", "bevy-wasm-tasks"]
 futures = ["bevy-async-ecs", "dep:futures", "futures-util", "future_handles"]
-server = ["dioxus-fullstack/server", "http_server"]
+server = ["dioxus-cli-config", "http_server"] # "dioxus-fullstack/server"
 client = []
 surrealdb = ["dep:surrealdb"]
-bevy_std = ["bevy", "common/bevy_std", "bevy/bevy_log"]
+bevy_std = ["bevy", "bevy_simple_subsecond_system", "common/bevy_std", "bevy/bevy_ui", "bevy/bevy_log"]
 http_server = ["axum"]
 
 [dependencies]
 bevy = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["serialize", "bevy_state", "bevy_color", "bevy_ui_debug", "track_location"], optional = true }
-bevy_simple_subsecond_system = { git = "https://github.com/Catchawink/bevy_simple_subsecond_system.git", branch = "reflect/serializable-dynamic-types" }
-dioxus-fullstack = { version = "0.7.0-alpha.1", optional = true }
-dioxus-cli-config = { version = "0.7.0-alpha.1" }
+bevy_simple_subsecond_system = { git = "https://github.com/Catchawink/bevy_simple_subsecond_system.git", branch = "reflect/serializable-dynamic-types", optional = true }
+dioxus-cli-config = { version = "0.7.0-alpha.2", optional = true }
 # "bevy_ui", "bevy_asset", "bevy_state", "bevy_scene"
 reflect-steroids = { git = "https://github.com/Catchawink/reflect-steroids.git", optional = true }
 flux_core = { git = "https://github.com/empathic-ai/flux-core.git", default-features = false }
@@ -53,6 +52,7 @@ nameof = "1.2.2"
 lazy_static = "1.4.0"
 
 [target.'cfg(all(not(target_arch = "xtensa")))'.dependencies]
+async-channel = { version = "2" }
 prost-types = { version = "0.13.3", optional = true }
 # tonic = { git = "https://github.com/Catchawink/tonic.git", branch = "hyper-1.0", default-features = false, features = ["prost", "codegen"] }
 reqwest = { version = "0.12.9", default-features = false, features = [
@@ -68,6 +68,7 @@ bevy-async-ecs = { git = "https://github.com/Catchawink/bevy-async-ecs.git", bra
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(target_arch = "xtensa")))'.dependencies]
 bevy-wasm-tasks = { git = "https://github.com/Catchawink/bevy-wasm-tasks.git", branch = "reflect/serializable-dynamic-types", features = ["tokio"], optional = true }
+dioxus-fullstack = { version = "0.7.0-alpha.2", optional = true }
 
 [target.'cfg(all(target_arch = "wasm32"))'.dependencies]
 bevy-wasm-tasks = { git = "https://github.com/Catchawink/bevy-wasm-tasks.git", branch = "reflect/serializable-dynamic-types", features = ["wasm"], optional = true }

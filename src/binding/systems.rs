@@ -509,6 +509,7 @@ impl ListBinding {
 // (subsequent use of tuple works because of dynamic property binding using Box<dyn Reflect>)
 
 // Move conflicting queries into a ParamSet: https://bevy-cheatbook.github.io/programming/paramset.html
+#[cfg(feature = "bevy_std")]
 pub fn propogate_forms(
     mut commands: Commands,
     //type_registry: Res<AppTypeRegistry>,
@@ -776,6 +777,7 @@ pub fn propogate_forms(
          */
 }
 
+#[cfg(feature = "bevy_std")]
 pub fn process_form_on_submit(
     mut commands: Commands,
     mut ev_reader: EventReader<SubmitEvent>,

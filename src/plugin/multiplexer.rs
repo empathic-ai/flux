@@ -133,7 +133,7 @@ impl Channel {
     pub fn try_recv(&mut self) -> Option<NetworkEvent> {
         let mut channels = self.multiplexer.channels.write().unwrap();
 
-        let mut channel = channels.get_mut(&self.id.clone()).expect(&format!("Failed to get peer event buffer for ID {}", self.id.id));
+        let mut channel = channels.get_mut(&self.id.clone()).expect(&format!("Failed to get peer event buffer for ID {:#}", self.id));
 
         //dbg!(self.peer_id.clone());
         if let Some(ev) = channel.recv_ev(&mut self.last_ev) {
@@ -161,7 +161,7 @@ impl Stream for Channel {
         // Acquire the lock on the underlying multiplexer channel.
         let multiplxer = self.multiplexer.clone();
         let mut channels = multiplxer.channels.write().unwrap();
-        let ch = channels.get_mut(&self.id).expect(&format!("Failed to get peer event buffer for ID {}", self.id.id));
+        let ch = channels.get_mut(&self.id).expect(&format!("Failed to get peer event buffer for ID {:#}", self.id));
         
         // First check: try to receive an event.
         //info!("Poll receiving...");
@@ -273,11 +273,15 @@ impl Multiplexer {
     pub async fn recv_ev<T>(&self, receiver_id: Id, sender_id: Id) -> Result<T> where T: Reflect + FromReflect + Typed {
         let mut rx = self.get_channel(receiver_id);
         loop {
-            if let Some(ev) = rx.try_recv() {
-                if ev.peer_id == sender_id {
-                    let event_type = ev.ev;
+            if let Some(network_ev) = rx.try_recv() {
+                if network_ev.peer_id == sender_id {
 
-                    if let ReflectRef::Enum(enum_ref) = event_type.reflect_ref() {
+                    if let Some(ev) = network_ev.get_ev::<T>() {
+                        return Ok(ev);
+                    }
+
+                    /*
+                    if let ReflectRef::Enum(enum_ref) = ev.reflect_ref() {
                         let s = enum_ref.field_at(0).unwrap();
 
                         if let TypeInfo::Struct(_struct_info) = T::type_info()
@@ -293,6 +297,7 @@ impl Multiplexer {
                             }
                         }
                     }
+                    */
                 }
             }
         }

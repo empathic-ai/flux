@@ -16,6 +16,7 @@ use bevy::{prelude::*, reflect::DynamicStruct};
 use crate::prelude::*;
 
 use common::prelude::*;
+#[cfg(feature = "bevy_std")]
 use bevy_simple_subsecond_system::prelude::*;
 
 #[derive(Resource, Clone)]
@@ -76,14 +77,18 @@ impl Plugin for FluxPlugin {
         app
             .insert_state(DbState::Connecting)
             .insert_resource(self.config.clone())
+            .insert_resource(BindingsConfig::default())
             .add_event::<NetworkEvent>()
             .add_event::<PeerEvent>()
-            .add_systems(Update, (relay_network_events).run_if(in_state(DbState::Connected)))
+            .add_systems(Update, (relay_network_events).run_if(in_state(DbState::Connected)));
+        
+        #[cfg(feature = "bevy_std")]
+        app
             .add_plugins(SimpleSubsecondPlugin::default());
 
         #[cfg(feature = "surrealdb")]
         app
-            .add_systems(PreStartup, (startup, database::start.map(error)).chain());
+            .add_systems(PreStartup, (startup, database::start).chain());
 
         #[cfg(feature = "futures")]
         app
@@ -115,7 +120,7 @@ pub fn relay_network_events(
 
     //info!("Trying to receive network events...");
     if let Some(ev) = session.get_channel_mut().try_recv() {
-        info!("Relaying network event {}!", ev.get_ev_name());
+        //info!("Relaying network event {}!", ev.get_ev_name());
         network_evs.send(ev);
     }
 }
