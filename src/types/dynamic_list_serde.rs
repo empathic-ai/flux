@@ -10,20 +10,18 @@ use ::serde::{
 };
 use std::{collections::BTreeMap, fmt};
 
-pub fn serialize<S>(value: &DynamicStruct, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize<S>(value: &DynamicList, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    //info!("Using dynamic struct serializer.");
-
     let mut registry = TypeRegistry::new();
     registry.register_global_types();
-    let reflect_deserializer = ReflectSerializer::new(value, &registry);
+    let reflect_serializer = ReflectSerializer::new(value, &registry);
 
-    reflect_deserializer.serialize(serializer)
+    reflect_serializer.serialize(serializer)
 }
 
-pub fn deserialize<'de, D>(deserializer: D) -> Result<DynamicStruct, D::Error>
+pub fn deserialize<'de, D>(deserializer: D) -> Result<DynamicList, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -32,11 +30,9 @@ where
     let reflect_deserializer = ReflectDeserializer::new(&registry);
     let value = reflect_deserializer.deserialize(deserializer)?;
 
-    //info!("Using dynamic struct deserializer.");
-
-    if let ReflectRef::Struct(struct_ref) = value.reflect_ref() {
-        Ok(struct_ref.clone_dynamic())
+    if let ReflectRef::List(list_ref) = value.reflect_ref() {
+        Ok(list_ref.to_dynamic_list())
     } else {
-        Err(::serde::de::Error::custom("Value was not a dynamic struct"))
+        Err(::serde::de::Error::custom("Value was not a dynamic list"))
     }
 }

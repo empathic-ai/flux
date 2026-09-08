@@ -49,7 +49,7 @@ impl<'a> Access<'a> {
         }
     }
 
-    pub(super) fn element<'r>(
+    pub fn element<'r>(
         &self,
         base: &'r dyn PartialReflect,
         offset: Option<usize>,
@@ -106,7 +106,7 @@ impl<'a> Access<'a> {
         }
     }
 
-    pub(super) fn element_mut<'r>(
+    pub fn element_mut<'r>(
         &self,
         base: &'r mut dyn PartialReflect,
         offset: Option<usize>,

@@ -1,11 +1,16 @@
-#[cfg(feature = "bevy")]
-use bevy::prelude::*;
-use bevy::{ecs::component::Mutable, reflect::{DynamicStruct, DynamicTyped, GetTypeRegistration, TypeRegistration, Typed}};
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
-use smart_clone::SmartClone;
-use uuid::Uuid;
 use crate::prelude::*;
+#[cfg(feature = "bevy")]
+use bevy::{ecs::component::Mutable, prelude::*, asset::ron::ser::{PrettyConfig, to_string_pretty}};
+#[cfg(feature = "bevy")]
+use bevy_reflect::{GetTypeRegistration, Typed};
+#[cfg(feature = "bevy_reflect")]
+use bevy_reflect::{DynamicStruct, prelude::*};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
+#[cfg(feature = "serde")]
+use serde_with::serde_as;
+use smart_clone::SmartClone;
 use std::{fmt::Debug, str::FromStr};
+use uuid::Uuid;
 
 mod config;
 pub use config::*;
@@ -21,10 +26,94 @@ mod in_option;
 pub use in_option::*;
 
 pub mod dynamic_struct_serde;
+pub mod dynamic_list_serde;
 
-pub trait FluxRecord = Component<Mutability = Mutable> + Struct + Reflect + PartialReflect + Typed + Clone + Debug + Reactive + GetTypeRegistration + Serialize + DeserializeOwned;
+#[cfg(feature = "bevy")]
+pub trait ToStringPretty {
+    fn to_string_pretty(&self) -> String;
+}
 
-#[derive(Event)]
+#[cfg(feature = "bevy")]
+impl<T> ToStringPretty for T
+where
+    T: PartialReflect
+{
+    fn to_string_pretty(&self) -> String {
+        self.as_partial_reflect().to_string_pretty()
+    }
+}
+
+#[cfg(feature = "bevy")]
+impl ToStringPretty for dyn Reactive {
+    fn to_string_pretty(&self) -> String {
+        self.as_partial_reflect().to_string_pretty()
+    }
+}
+
+#[cfg(feature = "bevy")]
+impl ToStringPretty for dyn PartialReflect {
+    fn to_string_pretty(&self) -> String {
+        use bevy_reflect::{TypeRegistry, serde::ReflectSerializer};
+
+        let mut registry = TypeRegistry::new();
+        registry.register_global_types();
+
+        let serializer = ReflectSerializer::new(self, &registry);
+        to_string_pretty(&serializer, PrettyConfig::default())
+            .unwrap()
+    }
+}
+
+#[cfg(feature = "bevy")]
+pub trait ToDynamicStruct {
+    fn to__dynamic_struct(&self) -> Option<DynamicStruct>;
+}
+
+#[cfg(feature = "bevy")]
+impl<T> ToDynamicStruct for T
+where
+    T: PartialReflect
+{
+    fn to__dynamic_struct(&self) -> Option<DynamicStruct> {
+        self.as_partial_reflect().to__dynamic_struct()
+    }
+}
+
+#[cfg(feature = "bevy")]
+impl ToDynamicStruct for dyn PartialReflect {
+    fn to__dynamic_struct(&self) -> Option<DynamicStruct> {
+        use bevy_reflect::ReflectRef;
+
+        if let ReflectRef::Struct(s) = self.reflect_ref() {
+            let mut dynamic = DynamicStruct::default();
+            dynamic.set_represented_type(s.get_represented_type_info());
+            for i in 0..s.field_len() {
+                let name = s.name_at(i).unwrap();
+                let field = s.field_at(i).unwrap();
+                dynamic.insert_boxed(name, field.clone_value());
+            }
+            // dynamic: DynamicStruct
+            return Some(dynamic);
+        }
+        None
+    }
+}
+
+
+#[cfg(feature = "bevy")]
+pub trait FluxRecord = Component<Mutability = Mutable>
+    + Struct
+    + PartialReflect
+    + FromReflect
+    + Typed
+    + Clone
+    + Debug
+    + Reactive
+    + GetTypeRegistration
+    + Serialize
+    + DeserializeOwned;
+
+#[cfg_attr(feature = "bevy", derive(Event))]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone)]
 pub struct PeerEvent {
@@ -32,24 +121,101 @@ pub struct PeerEvent {
     pub network_event: Option<NetworkEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, States)]
+#[cfg_attr(feature = "bevy", derive(States))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum DbState {
-	#[default]
-	Connecting,
-    Connected
+    #[default]
+    Connecting,
+    Connected,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, States)]
+#[cfg_attr(feature = "bevy", derive(States))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum NetworkState {
-	#[default]
-	Connecting,
-    Connected
+    #[default]
+    Connecting,
+    Connected,
 }
 
+///
+#[derive(Reflect, Reactive, documented::Documented)]
+#[cfg_attr(feature = "bevy", derive(Component, Event))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct AddEntityEvent {
+    pub entity_id: Option<Id>,
+}
+///
+#[derive(Reflect, Reactive, documented::Documented)]
+#[cfg_attr(feature = "bevy", derive(Component, Event))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct RemoveEntityEvent {}
+///
+#[derive(Reflect, Reactive, documented::Documented)]
+#[cfg_attr(feature = "bevy", derive(Component, Event))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct TrackRecordEvent {
+    pub entity_id: Id,
+}
+///
+#[derive(Reflect, Reactive, documented::Documented)]
+#[cfg_attr(feature = "bevy", derive(Component, Event))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct UntrackEntityEvent {}
+
+///
+#[derive(Reflect, Reactive, documented::Documented)]
+#[cfg_attr(feature = "bevy", derive(Component, Event))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct RemoveComponentEvent {}
+///
+#[derive(Reflect, Reactive, documented::Documented)]
+#[cfg_attr(feature = "bevy", derive(Component, Event))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct ChangePropertyEvent {}
+///
+#[derive(Reflect, Reactive, documented::Documented)]
+#[cfg_attr(feature = "bevy", derive(Component, Event))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct AddElementEvent {
+    pub entity_id: String,
+    pub component_type: String,
+    pub property_name: String,
+    pub index: i32,
+    pub value: String,
+}
+///
+#[derive(Reflect, Reactive, documented::Documented)]
+#[cfg_attr(feature = "bevy", derive(Component, Event))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct RemoveElementEvent {
+    pub entity_id: String,
+    pub component_type: String,
+    pub property_name: String,
+    pub index: i32,
+}
 
 /// This is a placeholder comment.
-#[derive(Reflect, Event, SmartClone)]
-#[derive(documented::Documented, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Reactive, Reflect, SmartClone, documented::Documented
+)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "bevy", derive(Event))]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Debug)]
 pub struct AddComponentEvent {
@@ -57,7 +223,6 @@ pub struct AddComponentEvent {
     pub component_type: String,
     #[clone(clone_with = "DynamicStruct::clone_dynamic")]
     #[serde(with = "dynamic_struct_serde")]
-    #[reflect(ignore)]
     pub component: DynamicStruct,
 }
 
@@ -194,23 +359,32 @@ impl GetTypeRegistration for Dynamic {
 } */
 */
 
-#[derive(Event, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "bevy", derive(Event))]
 pub struct DbRequestEvent {
     pub peer_id: Id,
     pub db_record_id: Id,
 }
 
-#[derive(Event, Clone)]
+/// This is a test comment.
+#[derive(
+    Reactive, Reflect, SmartClone, documented::Documented
+)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "bevy", derive(Event))]
 pub struct DbReceiveEvent {
     pub peer_id: Id,
     pub db_record_id: Id,
     pub component_type: String,
-    pub component_data: Vec<u8>
+    #[clone(clone_with = "DynamicStruct::clone_dynamic")]
+    #[serde(with = "dynamic_struct_serde")]
+    pub component: DynamicStruct,
 }
 
 /// This is a test comment.
-#[derive(Reactive, Reflect, Event, SmartClone, Serialize, Deserialize)]
-#[reflect(from_reflect = false)]
+#[derive(Reactive, Reflect, SmartClone, Serialize, Deserialize)]
+#[cfg_attr(feature = "bevy", derive(Event))]
+//#[reflect(from_reflect = false)]
 //#[derive(ragent::prelude::Task)]
 #[derive(documented::Documented)]
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -219,37 +393,39 @@ pub struct NetworkEvent {
     pub peer_id: Id,
     #[clone(clone_with = "DynamicStruct::clone_dynamic")]
     #[serde(with = "dynamic_struct_serde")]
-    pub ev: DynamicStruct
+    pub ev: DynamicStruct,
 }
 
 impl NetworkEvent {
-    pub fn new<T>(peer_id: Id, ev: T) -> Self where T: Struct {
+    pub fn new<T>(peer_id: Id, ev: T) -> Self
+    where
+        T: Struct,
+    {
         Self {
             peer_id,
-            ev: ev.clone_dynamic()
+            ev: ev.to_dynamic_struct(),
         }
     }
 
-    pub fn get_ev<T>(&self) -> Option<T> where T: FromDynamic {
+    pub fn get_ev<T>(&self) -> Option<T>
+    where
+        T: FromDynamic,
+    {
         T::from_dynamic(&self.ev)
     }
 
     pub fn get_ev_name(&self) -> String {
         match self.ev.get_represented_type_info() {
-            Some(type_info) => {
-                type_info.ty().short_path().to_string()
-            },
-            None => {
-                "dynamic".to_string()
-            },
+            Some(type_info) => type_info.ty().short_path().to_string(),
+            None => "dynamic".to_string(),
         }
     }
 }
 
-#[cfg_attr(feature = "bevy", derive(Reflect))]
+#[cfg_attr(feature = "bevy_reflect", derive(Reflect))]
 #[derive(Clone, Copy, PartialEq, Hash, Eq, Default, Debug, Reactive)]
 pub struct Id {
-    id: Uuid
+    id: Uuid,
 }
 
 impl Id {
@@ -262,7 +438,9 @@ impl Id {
     }
 
     pub fn from(text: &str) -> Self {
-        Self { id: Uuid::from_str(text).unwrap() }
+        Self {
+            id: Uuid::from_str(text).unwrap(),
+        }
     }
 
     pub fn to_pretty_string(&self) -> String {
@@ -300,7 +478,7 @@ impl std::fmt::Display for Id {
             // Full UUID when used with "{}"
             let mut pretty_string = self.id.to_string();
             pretty_string.remove_matches("-");
-        
+
             write!(f, "{}", pretty_string)
         }
     }

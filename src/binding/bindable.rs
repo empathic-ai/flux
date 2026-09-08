@@ -1,7 +1,8 @@
-use bevy::{prelude::*, reflect::{impl_type_path, DynamicStruct, DynamicTyped, DynamicVariant, GetType, GetTypeRegistration, MaybeTyped, Type, TypeRegistration, Typed}};
+use bevy::{prelude::*, reflect::{impl_type_path, DynamicStruct, DynamicList, List, DynamicTyped, DynamicVariant, GetType, GetTypeRegistration, MaybeTyped, Type, TypeRegistration, Typed}};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use crate::prelude::*;
 use smart_clone::SmartClone;
+use derive_more::Debug;
 
 #[bevy_trait_query::queryable]
 #[reflect_trait]
@@ -15,12 +16,23 @@ pub struct AutoBindable {
     pub value: Box<dyn Reflect>
 }
 
-#[derive(Component, SmartClone, Reflect, Reactive, Serialize, Deserialize, Debug)]
-#[reflect(from_reflect = false)]
+#[derive(Component, SmartClone, Debug, Reflect, Reactive, Serialize, Deserialize)]
 pub struct ReactiveView {
     #[clone(clone_with = "DynamicStruct::clone_dynamic")]
     #[serde(with = "dynamic_struct_serde")]
-    pub value: DynamicStruct
+    pub value: DynamicStruct,
+}
+
+// TODO: Implement FromReflect for DynamicLists, similar to DynamicStructs
+#[derive(Component, SmartClone, Debug, Reflect, Reactive, Serialize, Deserialize)]
+pub struct ReactiveListView {
+    #[clone(clone_with = "DynamicList::to_dynamic_list")]
+    #[serde(with = "dynamic_list_serde")]
+    pub value: DynamicList,
+    #[reflect(ignore)]
+    #[serde(skip)]
+    #[debug(skip)]
+    pub create_entity_func: Option<EntityFunc>,
 }
 
 #[derive(Debug, Reactive)]

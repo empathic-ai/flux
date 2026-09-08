@@ -1,4 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
+use bevy::ecs::error::HandleError;
 use bevy::prelude::*;
 
 pub type SubmitFunc = CommandFuncWithArgs2<HashMap<String, String>>;
@@ -216,6 +217,7 @@ where
     }
 }
 
+/*
 pub struct CreateEntityFunc(Arc<dyn EntityCloneFn + Send + Sync>);
 
 impl CreateEntityFunc {
@@ -232,4 +234,58 @@ impl Clone for CreateEntityFunc {
     fn clone(&self) -> Self {
         CreateEntityFunc(self.0.clone())
     }
+}*/
+
+use bevy::ecs::system::{SystemId, SystemInput, SystemParam, SystemParamFunction};
+
+#[derive(Clone, Copy)]
+pub struct EntityFunc(SystemId<In<Entity>, Result<()>>);
+
+impl EntityFunc {
+    pub fn new<S, SM>(commands: &mut Commands, system: S) -> Self
+    where
+        S: EntitySys<SM>,
+    {
+        let system_id = commands.register_system(system);
+        let system_id = commands.register_system(move |In(entity): In<Entity>, world: &mut World| {
+            let result = world.run_system_with(system_id, entity)?;
+            result.into_entity_result()
+        });
+
+        EntityFunc(system_id)
+    }
+
+    pub fn call(&self, commands: &mut Commands, entity: Entity) -> Entity {
+        let system_id = self.0.clone();
+        commands.queue(    move |world: &mut World| -> Result {
+                world.run_system_with(system_id, entity)?;
+                Ok(())
+            }
+        );
+        entity
+    }
 }
+
+pub trait IntoResult {
+    fn into_entity_result(self) -> Result<()>;
+}
+
+impl IntoResult for () {
+    fn into_entity_result(self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl IntoResult for anyhow::Result<()> {
+    fn into_entity_result(self) -> Result<()> {
+        self.map_err(bevy::ecs::error::BevyError::from)
+    }
+}
+
+pub trait EntitySys<SM> = SystemParamFunction<SM, In = In<Entity>, Out: IntoResult + Send + Sync> + Send + Sync + 'static
+where
+    SM: Send + Sync + 'static,
+     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
+
+
+    

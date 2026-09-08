@@ -12,12 +12,12 @@ pub use multiplexer::*;
 mod systems;
 pub use systems::*;
 
-use bevy::{prelude::*, reflect::DynamicStruct};
 use crate::prelude::*;
+use bevy::{ecs::system::SystemState, prelude::*, reflect::DynamicStruct};
 
-use common::prelude::*;
-#[cfg(feature = "bevy_std")]
+#[cfg(feature = "subsecond")]
 use bevy_simple_subsecond_system::prelude::*;
+use common::prelude::*;
 
 #[derive(Resource, Clone)]
 pub struct Session {
@@ -35,7 +35,10 @@ impl Session {
     }
 
     ///  Sends an event using the current user's channel.
-    pub fn send_ev<T>(&self, recipient_id: Id, ev: T) where T: Struct {
+    pub fn send_ev<T>(&self, recipient_id: Id, ev: T)
+    where
+        T: Struct,
+    {
         self.channel.send_ev(recipient_id, ev);
     }
 
@@ -66,37 +69,34 @@ pub struct FluxPlugin {
 
 impl FluxPlugin {
     pub fn new(config: FluxConfig) -> Self {
-        Self {
-            config
-        }
+        Self { config }
     }
 }
 
 impl Plugin for FluxPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .insert_state(DbState::Connecting)
+
+        app.insert_state(DbState::Connecting)
             .insert_resource(self.config.clone())
             .insert_resource(BindingsConfig::default())
             .add_event::<NetworkEvent>()
             .add_event::<PeerEvent>()
-            .add_systems(Update, (relay_network_events).run_if(in_state(DbState::Connected)));
-        
-        #[cfg(feature = "bevy_std")]
-        app
-            .add_plugins(SimpleSubsecondPlugin::default());
+            .add_systems(
+                Update,
+                (relay_network_events, process_reactive_lists).run_if(in_state(DbState::Connected)),
+            );
+
+        #[cfg(feature = "subsecond")]
+        app.add_plugins(SimpleSubsecondPlugin::default());
 
         #[cfg(feature = "surrealdb")]
-        app
-            .add_systems(PreStartup, (startup, database::start).chain());
+        app.add_systems(PreStartup, (startup, database::start).chain());
 
         #[cfg(feature = "futures")]
-        app
-            .add_plugins((AsyncEcsPlugin));
+        app.add_plugins((AsyncEcsPlugin));
 
         #[cfg(feature = "tokio")]
-        app
-            .add_plugins((TasksPlugin::default()));
+        app.add_plugins((TasksPlugin::default()));
     }
 }
 
@@ -110,11 +110,15 @@ fn startup(world: &mut World) {
 
 pub fn relay_network_events(
     mut session: ResMut<Session>,
-    mut peer_evs: ResMut<Events<PeerEvent>>, mut network_evs: ResMut<Events<NetworkEvent>>,
+    mut peer_evs: ResMut<Events<PeerEvent>>,
+    mut network_evs: ResMut<Events<NetworkEvent>>,
 ) {
     for ev in peer_evs.get_cursor().read(&peer_evs) {
         //info!("Sending network event of type {:?}!", ev.network_event.as_ref().unwrap().network_event_type.clone().unwrap());
-        session.get_multiplexer().send(ev.peer_id.clone().unwrap(), ev.network_event.clone().unwrap());
+        session.get_multiplexer().send(
+            ev.peer_id.clone().unwrap(),
+            ev.network_event.clone().unwrap(),
+        );
     }
     peer_evs.clear();
 
@@ -122,5 +126,31 @@ pub fn relay_network_events(
     if let Some(ev) = session.get_channel_mut().try_recv() {
         //info!("Relaying network event {}!", ev.get_ev_name());
         network_evs.send(ev);
+    }
+}
+
+pub trait NetworkCommandsExt {
+    fn send_network_event<T>(&mut self, recipient_id: Id, ev: T) where T: Struct;
+}
+
+// implement our trait for Bevy's `Commands`
+impl<'w, 's> NetworkCommandsExt for Commands<'w, 's> {
+    fn send_network_event<T>(&mut self, recipient_id: Id, ev: T)
+    where
+        T: Struct,
+    {
+        self.queue(move |world: &mut World| {
+            let mut system_state: SystemState<(
+                ResMut<Session>
+            )> = SystemState::new(world);
+            {
+                let (mut session) = system_state.get_mut(world);
+                session.send_ev(
+                    recipient_id,
+                    ev,
+                );
+            }
+            system_state.apply(world);
+        });
     }
 }

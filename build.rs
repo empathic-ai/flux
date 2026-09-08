@@ -1,6 +1,7 @@
 use std::{env, fs, path::{Path, PathBuf}};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "tonic")]
     if let Ok(_) = env::var("CARGO_FEATURE_PROST") {
         let mut config = prost_build::Config::new();
         config.extern_path(".flux.Thing", "crate::prelude::Thing");

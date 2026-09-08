@@ -6,8 +6,10 @@ exclude = ["/examples"]
 
 [features]
 default = ["bevy_std", "futures", "tokio"]
-bevy = ["dep:bevy", "flux_core/bevy", "common/bevy", "bevy-trait-query", "reflect-steroids"]
+bevy_reflect = ["serde", "flux_core/bevy_reflect", "dep:bevy_reflect", "reflect-steroids"]
+bevy = ["dep:bevy", "bevy_reflect", "flux_core/bevy", "common/bevy", "bevy-trait-query"]
 bevy_ui = []
+serde = ["dep:serde", "dep:serde_json", "dep:serde_with"]
 dynamic_linking = ["bevy?/dynamic_linking"]
 tonic = ["dep:tonic", "prost"]
 prost = ["dep:prost", "prost-types"]
@@ -15,11 +17,13 @@ tokio = ["common/tokio", "bevy-wasm-tasks"]
 futures = ["bevy-async-ecs", "dep:futures", "futures-util", "future_handles"]
 server = ["dioxus-cli-config", "http_server"] # "dioxus-fullstack/server"
 client = []
-surrealdb = ["dep:surrealdb"]
-bevy_std = ["bevy", "bevy_simple_subsecond_system", "common/bevy_std", "bevy/bevy_ui", "bevy/bevy_log"]
+surrealdb = ["dep:surrealdb", "castaway"]
+bevy_std = ["bevy", "common/bevy_std", "bevy/bevy_ui", "bevy/bevy_log"]
 http_server = ["axum"]
+subsecond = ["bevy_std", "bevy_simple_subsecond_system"]
 
 [dependencies]
+bevy_reflect = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["uuid"], optional = true }
 bevy = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["serialize", "bevy_state", "bevy_color", "bevy_ui_debug", "track_location"], optional = true }
 bevy_simple_subsecond_system = { git = "https://github.com/Catchawink/bevy_simple_subsecond_system.git", branch = "reflect/serializable-dynamic-types", optional = true }
 dioxus-cli-config = { version = "0.7.0-alpha.2", optional = true }
@@ -27,20 +31,22 @@ dioxus-cli-config = { version = "0.7.0-alpha.2", optional = true }
 reflect-steroids = { git = "https://github.com/Catchawink/reflect-steroids.git", optional = true }
 flux_core = { git = "https://github.com/empathic-ai/flux-core.git", default-features = false }
 flux_derive = { git = "https://github.com/empathic-ai/flux-derive.git", default-features = false }
-serde = { version = "1.0.149", features = ["derive"] }
+serde = { version = "1.0.149", features = ["derive"], optional = true }
 anyhow = { version = "1.0.71", default-features = false }
 uuid = { version = "1.13", features = ["v4"] }
 prost = { version = "0.13.3", optional = true }
 documented = "0.1.2"
 # TODO: Replace with crates.io reference once Tonic officially supports Axum v0.8
 tonic = { version = "0.12.3", default-features = false, features = ["prost", "codegen"], optional = true }
-serde_json = "1.0"
+serde_json = { version = "1.0", optional = true }
+serde_with = { version = "3.12.0", optional = true }
 futures = { version = "0.3.25", optional = true }
 futures-util = { version = "0.3.31", optional = true }
 future_handles = { version = "0.2.0", features = ["sync"], optional = true }
 smart-clone = "0.1.0"
 # bevy_async_task = "0.5.0"
 derive_more = { version = "1", default-features = false, features = [
+  "debug",
   "error",
   "from",
   "display",
@@ -60,17 +66,20 @@ reqwest = { version = "0.12.9", default-features = false, features = [
     "json",
     "stream",
 ] }
-surrealdb = { version = "2.1.4", default-features = false, features = ["protocol-ws"], optional = true }
+castaway = { version = "0.2.4", optional = true }
 
 # bevy_cobweb = { version = "0.10.1", optional = true }
 # bevy_cobweb_ui = { version = "0.5.1", default-features = false, optional = true }
 bevy-async-ecs = { git = "https://github.com/Catchawink/bevy-async-ecs.git", branch = "reflect/serializable-dynamic-types", optional = true }
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(target_arch = "xtensa")))'.dependencies]
+# git = "https://github.com/Catchawink/surrealdb.git"
+surrealdb = { path = "../../../surrealdb/surrealdb", default-features = false, features = ["protocol-ws"], optional = true }
 bevy-wasm-tasks = { git = "https://github.com/Catchawink/bevy-wasm-tasks.git", branch = "reflect/serializable-dynamic-types", features = ["tokio"], optional = true }
 dioxus-fullstack = { version = "0.7.0-alpha.2", optional = true }
 
 [target.'cfg(all(target_arch = "wasm32"))'.dependencies]
+surrealdb = { path = "../../../surrealdb/surrealdb", default-features = false, features = ["kv-indxdb"], optional = true }
 bevy-wasm-tasks = { git = "https://github.com/Catchawink/bevy-wasm-tasks.git", branch = "reflect/serializable-dynamic-types", features = ["wasm"], optional = true }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen-futures = "0.4"
@@ -79,5 +88,5 @@ wasm-bindgen-futures = "0.4"
 axum = { version = "0.8.1", features = ["multipart", "macros", "ws"], optional = true }
 
 [build-dependencies]
-tonic-build = { version = "0.10.2", default-features = false, features = ["prost"] }
-prost-build = "0.12.3"
+tonic-build = { version = "0.10.2", default-features = false, features = ["prost"], optional = true }
+prost-build = { version = "0.12.3", optional = true }

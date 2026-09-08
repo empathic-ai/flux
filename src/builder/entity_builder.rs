@@ -1,4 +1,5 @@
 use bevy::{ecs::{component::Mutable, system::{EntityCommands, RunSystemOnce, SystemId}}, prelude::*, reflect::ReflectKind, utils::default};
+use bevy_reflect::{DynamicList};
 //use bevy_cobweb_ui::prelude::*;
 //use bevy_cobweb::prelude::*;
 
@@ -126,16 +127,17 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 
     fn on_click_event<E: Event + std::clone::Clone>(&mut self, event: E) -> &mut Self {
         
-        self.on_click(|entity| {
-            move |mut commands: Commands| {
+        self.on_click(
+            move |In(entity), mut commands: Commands| {
             //move |command| {
                 let event = event.clone();
                 commands.queue(move |world: &mut World| {
                     log("Sending click event!");
                     world.send_event(event);
                 });
+                Ok(())
             }
-        })
+        )
     }
 
     fn by_empathic_title(&mut self, brightness: f32, size: f32) -> &mut Self {
@@ -144,7 +146,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             //parent.child().fixed_width(7.5*size);
             parent.child().insert((
                 ImageRect {
-                    image: "assets/images/Empathic Title.webp".to_string(),
+                    image: "assets/icons/Empathic Title.webp".to_string(),
                     brightness: brightness,
                     ..default()
                 },
@@ -161,23 +163,20 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self
     } */
 
-    fn on_click<M, C, R>(&mut self, on_click: R) -> &mut Self 
-    where
-        C: IntoSystem<(), (), M> + Send + Sync + 'static,
-        R: FnOnce(Entity) -> C, {
+    fn on_click<S, SM>(&mut self, on_click: S) -> &mut Self 
+    where S: EntitySys<SM> {
 
         let id = self.id();
-        let callback = (on_click)(id);
+        let callback = EntityFunc::new(&mut self.get_commands().commands(), on_click);
 
-        let system = self.get_commands().commands().register_system(callback);
-        self.on_click_with_system(system)
+        self.on_click_with_func(callback)
     }
 
 
-    fn on_click_with_system(&mut self, system: SystemId) -> &mut Self {
+    fn on_click_with_func(&mut self, func: EntityFunc) -> &mut Self {
         self.upsert(|comp: &mut Button|{}).insert(
             OnClick {
-                system
+                func
             }
         )
     }
@@ -250,8 +249,8 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         let id = self.id().clone();
         let component_name = component_name.to_string();
         self.get_commands().commands().queue(move |world: &mut World| {
-            world.run_system_once(move |mut bindings: Bindings| {
-                bindings.add_binding(Binding::Path(PathBinding {
+            world.run_system_once(move |mut bindings: FluxWorld| {
+                bindings.add_binding(Binding {
                     source_entity: entity,
                     source_component_name: component_name.clone(),
                     source_property_path: None,
@@ -259,7 +258,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     target_component_name: component_name.clone(),
                     target_property_path: None,
                     entity_func: None
-                }));
+                });
             });
         });
         self
@@ -277,8 +276,8 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         let target_component_name = target_component_name.to_string();
         let target_property_path = target_property_path.to_string();
         self.get_commands().commands().queue(move |world: &mut World| {
-            world.run_system_once(move |mut bindings: Bindings| {
-                bindings.add_binding(Binding::Path(PathBinding {
+            world.run_system_once(move |mut bindings: FluxWorld| {
+                bindings.add_binding(Binding {
                     source_entity: entity,
                     source_component_name: source_component_name.clone(),
                     source_property_path: Some(source_property_path.clone()),
@@ -286,7 +285,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     target_component_name: target_component_name.clone(),
                     target_property_path: Some(target_property_path.clone()),
                     entity_func: None
-                }));
+                });
             });
         });
         self
@@ -313,51 +312,19 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_path_list(&mut self, path: Vec<&str>, create_entity_func: CreateEntityFunc) -> &mut Self {
-        self.insert(
-            PropertyBinder {
-                property_path_parts: path.iter().map(|x| x.to_string()).collect(),
-                property_entities: vec![],
-                entity_func: None
-            }
-        )
-    }
+    fn bind_list<S, SM>(&mut self, entity: Option<Entity>, component_name: &str, property_name: &str, create_entity_system: S) -> &mut Self
+    where S: EntitySys<SM> {
+        use bevy::reflect::List;
 
-    fn bind_component_list(&mut self, source_entity: Entity, component_name: &str, property_name: &str, create_entity_func: CreateEntityFunc) -> &mut Self {
-        self.insert(
-            AutoBindableList {
-                entity: source_entity,
-                property_name: property_name.to_string(),
-                create_entity: Some(create_entity_func)
-            }
-        )
-    }
+        let create_entity_func = EntityFunc::new(&mut self.get_commands().commands(), create_entity_system);
 
-    fn bind_list(&mut self, entity: Option<Entity>, component_name: &str, property_name: &str, target_component_name: &str, target_property_path: Option<&str>, create_entity_func: CreateEntityFunc) -> &mut Self {
-        let id = self.id().clone();
-        let component_name = component_name.to_string();
-        let property_name = property_name.to_string();
-        let target_component_name = target_component_name.to_string();
-        let target_property_path = if let Some(target_property_path) = target_property_path {
-            Some(target_property_path.to_string())
-        } else {
-            None
-        };
-
-        self.get_commands().commands().queue(move |world: &mut World| {
-            world.run_system_once(move |mut bindings: Bindings| {
-                bindings.add_binding(Binding::List(ListBinding {
-                    source_entity: entity,
-                    source_component_name: component_name.clone(),
-                    source_property_path: Some(property_name.clone()),
-                    target_entity: Some(id),
-                    target_component_name: target_component_name.clone(),
-                    target_property_path: target_property_path.clone(),
-                    create_entity_func: Some(create_entity_func.clone())
-                }));
-            });
+        self.insert(ReactiveListView {
+            value: Vec::<()>::new().to_dynamic_list(),
+            create_entity_func: Some(create_entity_func)
         });
-        self
+        
+
+        self.bind_component_property(entity, component_name, property_name, name_of_type!(ReactiveListView),name_of!(value in ReactiveListView))
         /*
         self.insert(
             AutoBindableList {
@@ -388,9 +355,10 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
     fn route(&mut self, name: &str) -> &mut Self {
-        self.insert(
-            Route { name: name.to_string() }
-        )
+        self.insert((
+            Route { name: name.to_string() },
+            Name::new(name.to_string())
+        ))
     }
 
     fn large_space(&mut self, image: String) -> &mut Self {
@@ -405,10 +373,10 @@ pub trait BaseBuilder<'a>: Builder<'a> {
             Button { ..default() },
             InteractState { ..default() }
             //Shadow {}
-        )).rounded().scale_on_hover().on_click(|entity| {
-            |mut commands: Commands| {
+        )).rounded().scale_on_hover().on_click(
+            |In(entity), mut commands: Commands| {
+                Ok(())
             }
-        }
             //CommandFunc::new(move |commands: &mut Commands| {
                 //bevy_web::set_route("lobby".to_string());
             //})
@@ -578,6 +546,10 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                 },
             ));
         }).scale_on_hover()
+    }
+
+    fn name(&mut self, name: String) -> &mut Self {
+        self.insert(Name::new(name))
     }
     
     fn h_list(&mut self) -> &mut Self {
@@ -834,18 +806,15 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         })
     }
 
-    fn on_show<M, C, R>(&mut self, on_click: R) -> &mut Self 
-    where
-        C: IntoSystem<(), (), M> + Send + Sync + 'static,
-        R: FnOnce(Entity) -> C, {
+    fn on_show<S, SM>(&mut self, on_show: S) -> &mut Self 
+    where S: EntitySys<SM> {
 
         let id = self.id();
-        let callback = (on_click)(id);
+        let func = EntityFunc::new(&mut self.get_commands().commands(), on_show);
 
-        let syscommand = self.get_commands().commands().register_system(callback);
         self.upsert(|comp: &mut Control| {}).insert(
             OnShow {
-                system: Some(syscommand),
+                func: Some(func),
                 was_visible: false
             }
         )
@@ -964,15 +933,12 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     ..default()
                 }
             )).id();
-            parent.child().v_list().bind_list(Some(entity), "", "results", "", None, CreateEntityFunc::new(
-                |commands| {
-                    let mut child = commands.child();
-                    child.label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true);//.bind::<String>();
-                    let entity = child.id(); //.bind_property(Some(entity), "").id()
-                    child.bind_property(Some(entity), "");
-                    entity
+            parent.child().v_list().bind_list(Some(entity), "", "results",
+                |In(entity), mut commands: Commands| {
+                    commands.entity(entity).builder().label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true).bind_property(Some(entity), "");
+                    Ok(())
                 }
-            ));
+            );
 
             //let entity = child.id();
             //child.bind_property_with_func(entity, "Text", SetPropertyFunc::new(move|commands, _entity, reflect| {
@@ -1288,14 +1254,14 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                 HList {  spacing: SMALL_SPACE, anchor: Anchor::MiddleCenter, ..default() },
                 Shadow {},
                 BackgroundColor(color),
-            )).on_click(|entity| {
-                move || {
+            )).on_click(
+                move |In(entity)| {
                     let url = url.clone();
                     spawn(async move {
                         go_to_url(url);
                     });
                 }
-            }).with_children(|parent| {
+            ).with_children(|parent| {
                 parent.spawn((
                     Control {
                         fixed_width: 20.0,
