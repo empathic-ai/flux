@@ -330,7 +330,18 @@ async fn upsert_record<T, O, S, SM>(
 
         async_world
             .apply(move |world: &mut World| {
-                spawn_record(world, id, record);
+                let is_record = {
+                    let mut system_state: SystemState<Query<(Entity, Mut<T>, &DBRecord)>> =
+                        SystemState::new(world);
+                    let query = system_state.get_mut(world);
+                    query
+                        .iter()
+                        .find(|(_, _, db_rec)| db_rec.id == id).is_some()
+                };
+
+                if !is_record {
+                    spawn_record(world, id, record);
+                }
 
                 let mut system_state: SystemState<(Query<(Mut<T>, &DBRecord)>, S::Param)> =
                     SystemState::new(world);
@@ -370,7 +381,18 @@ async fn get_record<T, O, S, SM>(
 
         async_world
             .apply(move |world: &mut World| {
-                spawn_record(world, id, record);
+                let is_record = {
+                    let mut system_state: SystemState<Query<(Entity, Mut<T>, &DBRecord)>> =
+                        SystemState::new(world);
+                    let query = system_state.get_mut(world);
+                    query
+                        .iter()
+                        .any(|(_, _, db_rec)| db_rec.id == id)
+                };
+
+                if !is_record {
+                    spawn_record(world, id, record);
+                }
 
                 let mut system_state: SystemState<(Query<(Mut<T>, &DBRecord)>, S::Param)> =
                     SystemState::new(world);
@@ -409,7 +431,19 @@ async fn try_get_record<T, O, S, SM>(
         let record = record.0;
         async_world
             .apply(move |world: &mut World| {
-                spawn_record(world, id, record);
+                let found = {
+                    let mut system_state: SystemState<Query<(Entity, &DBRecord)>> =
+                        SystemState::new(world);
+                    let query = system_state.get_mut(world);
+                    query
+                        .iter()
+                        .find(|(_, db_rec)| db_rec.id == id)
+                        .map(|(entity, _)| entity)
+                };
+
+                if found.is_none() {
+                    spawn_record(world, id, record);
+                }
 
                 let mut system_state: SystemState<(Query<(Mut<T>, &DBRecord)>, S::Param)> =
                     SystemState::new(world);
