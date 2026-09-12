@@ -1,4 +1,5 @@
-use std::{env, fs, path::{Path, PathBuf}};
+#[cfg(feature = "tonic")]
+use std::env;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "tonic")]

@@ -5,6 +5,10 @@
 #![feature(must_not_suspend)]
 #![warn(must_not_suspend)]
 
+// Re-export the SDK used by the public database helpers so callers share its types.
+#[cfg(feature = "surrealdb")]
+pub use ::surrealdb as surrealdb_client;
+
 #[cfg(feature = "tonic")]
 pub mod service {
 	use crate::prelude::*;

@@ -66,26 +66,7 @@ pub fn start(config: Res<FluxConfig>, runner: Res<AsyncRunner>, tasks: Tasks) ->
             .insert_resource(Session::new(get_peer_id(api_url).await))
             .await;
 
-        let db: Surreal<Any> = Surreal::init();
-
-        info!("Connecting to database.");
-        if let Ok(_) = db.connect(get_database_address()).await {
-            // Signin as a namespace, database, or root user
-            #[cfg(feature = "server")]
-            db.signin(Root {
-                username: "root".to_string(),
-                password: "root".to_string(),
-            })
-            .await
-            .unwrap();
-
-            db.use_ns("test").use_db("test").await.unwrap();
-
-            info!("Connected to database.");
-        } else {
-            info!("Failed to connect to database.");
-            //return Err(anyhow!("Database hasn't been started. Please start the database."));
-        }
+        let db = get_database().await.expect("Failed to connect to database");
 
         async_world
             .register_system(
@@ -136,6 +117,54 @@ async fn get_peer_id(api_url: String) -> Id {
     Id::from(&peer_id)
 }
 
+/// Connect to the configured SurrealDB
+pub async fn get_database() -> anyhow::Result<Surreal<Any>> {
+    let database_address = get_database_address()?;
+
+    #[cfg(feature = "server")]
+    let namespace =
+        std::env::var("SURREAL_NAMESPACE").map_err(|_| anyhow!("Set SURREAL_NAMESPACE"))?;
+    #[cfg(not(feature = "server"))]
+    let namespace = "test".to_string();
+    #[cfg(feature = "server")]
+    let database =
+        std::env::var("SURREAL_DATABASE").map_err(|_| anyhow!("Set SURREAL_DATABASE"))?;
+    #[cfg(not(feature = "server"))]
+    let database = "test".to_string();
+    #[cfg(feature = "server")]
+    let token = std::env::var("SURREAL_TOKEN").ok();
+    #[cfg(feature = "server")]
+    let username = std::env::var("SURREAL_USER").ok();
+    #[cfg(feature = "server")]
+    let password = std::env::var("SURREAL_PASS").ok();
+
+    let db: Surreal<Any> = Surreal::init();
+
+    info!("Connecting to database.");
+    if let Ok(_) = db.connect(database_address).await {
+        // Signin as a namespace, database, or root user
+        #[cfg(feature = "server")]
+        if let Some(token) = token {
+            db.authenticate(token).await.unwrap();
+        } else {
+            db.signin(Root {
+                username: username.expect("Set SURREAL_TOKEN or SURREAL_USER/SURREAL_PASS"),
+                password: password.expect("Set SURREAL_TOKEN or SURREAL_USER/SURREAL_PASS"),
+            })
+            .await
+            .unwrap();
+        }
+
+        db.use_ns(namespace).use_db(database).await.unwrap();
+
+        info!("Connected to database.");
+    } else {
+        return Err(anyhow!("Database hasn't been started. Please start the database."));
+    }
+
+    Ok(db)
+}
+
 #[cfg(feature = "server")]
 async fn get_peer_id(api_url: String) -> Id {
     Id::nil()
@@ -169,14 +198,23 @@ pub async fn register(api_url: String) -> reqwest::Result<String> {
 }
 
 #[cfg(feature = "surrealdb")]
-fn get_database_address<'a>() -> &'a str {
-    #[cfg(target_arch = "wasm32")]
-    // IndexedDB currently not working--ideal for WASM, but issues present: https://github.com/surrealdb/indxdb/issues/9
-    return "indxdb://MyDatabase";
-    #[cfg(not(target_arch = "wasm32"))]
-    #[cfg(feature = "client")]
-    return "file://database.db";
-    #[cfg(not(target_arch = "wasm32"))]
-    #[cfg(feature = "server")]
-    return "ws://localhost:7777";
+fn get_database_address() -> anyhow::Result<String> {
+    if cfg!(target_arch = "wasm32") {
+        // IndexedDB currently not working--ideal for WASM, but issues present: https://github.com/surrealdb/indxdb/issues/9
+        return Ok("indxdb://MyDatabase".to_string());
+    }
+    if cfg!(feature = "server") {
+        return std::env::var("SURREAL_URL").map_err(|_| anyhow!("Set SURREAL_URL"));
+    }
+    if cfg!(feature = "client") {
+        return Ok("file://database.db".to_string());
+    }
+    Err(anyhow!(
+        "Enable the Flux server or client feature to configure a database URL"
+    ))
+}
+
+#[cfg(not(any(feature = "client", feature = "server")))]
+async fn get_peer_id(_: String) -> Id {
+    Id::nil()
 }
