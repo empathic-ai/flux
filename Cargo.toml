@@ -73,13 +73,12 @@ castaway = { version = "0.2.4", optional = true }
 bevy-async-ecs = { git = "https://github.com/Catchawink/bevy-async-ecs.git", branch = "reflect/serializable-dynamic-types", optional = true }
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(target_arch = "xtensa")))'.dependencies]
-# git = "https://github.com/Catchawink/surrealdb.git"
-surrealdb = { path = "../../../surrealdb/surrealdb", default-features = false, features = ["protocol-ws"], optional = true }
+surrealdb = { git = "https://github.com/Catchawink/surrealdb.git", default-features = false, features = ["protocol-ws"], optional = true }
 bevy-wasm-tasks = { git = "https://github.com/Catchawink/bevy-wasm-tasks.git", branch = "reflect/serializable-dynamic-types", features = ["tokio"], optional = true }
 dioxus-fullstack = { version = "0.7.0-alpha.2", optional = true }
 
 [target.'cfg(all(target_arch = "wasm32"))'.dependencies]
-surrealdb = { path = "../../../surrealdb/surrealdb", default-features = false, features = ["kv-indxdb"], optional = true }
+surrealdb = { git = "https://github.com/Catchawink/surrealdb.git", default-features = false, features = ["kv-indxdb"], optional = true }
 bevy-wasm-tasks = { git = "https://github.com/Catchawink/bevy-wasm-tasks.git", branch = "reflect/serializable-dynamic-types", features = ["wasm"], optional = true }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen-futures = "0.4"
