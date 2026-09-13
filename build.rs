@@ -1,25 +1,32 @@
-#[cfg(feature = "tonic")]
-use std::env;
-
-pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Ordinary source edits do not change the generated protocol.
+    println!("cargo:rerun-if-changed=build.rs");
     #[cfg(feature = "tonic")]
-    if let Ok(_) = env::var("CARGO_FEATURE_PROST") {
-        let mut config = prost_build::Config::new();
-        config.extern_path(".flux.Thing", "crate::prelude::Thing");
-        //config.extern_path(".flux.Dynamic", "crate::prelude::Dynamic");
+    compile_protocol()?;
+    Ok(())
+}
 
-        let attribute = "#[derive(documented::Documented, serde::Serialize, serde::Deserialize)]";
-        if let Ok(_) = env::var("CARGO_FEATURE_TONIC") {
-            let mut builder = tonic_build::configure();
+#[cfg(feature = "tonic")]
+fn compile_protocol() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed=proto");
+    println!("cargo:rerun-if-env-changed=PROTOC");
+    println!("cargo:rerun-if-env-changed=PROTOC_INCLUDE");
+    let mut config = prost_build::Config::new();
+    config.extern_path(".flux.Thing", "crate::prelude::Thing");
+    // Historical alternative: config.extern_path(".flux.Dynamic", "crate::prelude::Dynamic");
 
-            if let Ok(_) = env::var("CARGO_FEATURE_BEVY") {
-                builder = builder.type_attribute(".", "#[derive(crate::prelude::Reactive, bevy::prelude::Reflect, bevy::prelude::Event)]");
-            }
-
-            builder.type_attribute(".", attribute).compile_with_config(config, &["proto/flux.proto"], &["proto"])?;
-        } else {
-            config.type_attribute(".", attribute).compile_protos(&["proto/flux.proto"], &["proto"]);
-        }
+    let mut builder = tonic_build::configure();
+    if cfg!(feature = "bevy") {
+        builder = builder.type_attribute(
+            ".",
+            "#[derive(crate::prelude::Reactive, bevy::prelude::Reflect, bevy::prelude::Event)]",
+        );
     }
+    builder
+        .type_attribute(
+            ".",
+            "#[derive(documented::Documented, serde::Serialize, serde::Deserialize)]",
+        )
+        .compile_with_config(config, &["proto/flux.proto"], &["proto"])?;
     Ok(())
 }
