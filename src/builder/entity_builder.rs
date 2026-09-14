@@ -28,6 +28,10 @@ impl<'a> EntityBuilder<'a> {
             //custom_steps: Vec::new(),
         }
     }
+
+    pub fn bind_route_record(&mut self, component_name: &str) -> &mut Self {
+        self.bind_component(None, component_name)
+    }
 }
 
 impl<'a>  Builder<'a> for EntityBuilder<'a> {
@@ -258,6 +262,33 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     target_component_name: component_name.clone(),
                     target_property_path: None,
                     entity_func: None
+                });
+            });
+        });
+        self
+    }
+
+    fn bind_component_to(
+        &mut self,
+        entity: Option<Entity>,
+        source_component_name: &str,
+        target_component_name: &str,
+        target_property_path: &str,
+    ) -> &mut Self {
+        let id = self.id().clone();
+        let source_component_name = source_component_name.to_string();
+        let target_component_name = target_component_name.to_string();
+        let target_property_path = target_property_path.to_string();
+        self.get_commands().commands().queue(move |world: &mut World| {
+            world.run_system_once(move |mut bindings: FluxWorld| {
+                bindings.add_binding(Binding {
+                    source_entity: entity,
+                    source_component_name: source_component_name.clone(),
+                    source_property_path: None,
+                    target_entity: Some(id),
+                    target_component_name: target_component_name.clone(),
+                    target_property_path: Some(target_property_path.clone()),
+                    entity_func: None,
                 });
             });
         });

@@ -81,21 +81,11 @@ pub struct BWindow {
 
 #[derive(Component, Debug, Default)]
 pub struct Router {
-    pub path: Vec<String>,
-    pub params: HashMap<String, String>,
-}
-
-impl Router {
-    pub fn update_path(&mut self, path: String) {
-        self.path.clear();
-        self.path.push(path);
-    }
 }
 
 #[derive(Component, Debug)]
 pub struct Route {
     pub name: String,
-    //pub is_on: bool,
 }
 
 #[derive(Event)]

@@ -10,23 +10,23 @@ use crate::prelude::*;
 /// Abstracts over "how do I look up a reactive component" so the path walker
 /// isn't tied to any specific Query/DBConfig pair.
 pub trait EntityResolver {
-    fn get_reactive(&self, entity: Entity, component_name: &str) -> Option<Box<dyn PartialReflect>>;
+    fn get_reactive(&self, entity: Entity, component_name: &str) -> Option<(Option<String>, Box<dyn PartialReflect>)>;
     fn resolve_id(&self, id: &Id) -> Option<Entity>;
 }
 
 /// The default resolver, usable anywhere you have a reactives query + DBConfig.
 pub struct ReactiveResolver<'a, 'w, 's> {
-    pub reactives: &'a Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>,
+    pub reactives: &'a ReactivesQuery<'w, 's>,
     pub db_config: &'a DBConfig,
 }
 
 impl<'a, 'w, 's> EntityResolver for ReactiveResolver<'a, 'w, 's> {
-    fn get_reactive(&self, entity: Entity, component_name: &str) -> Option<Box<dyn PartialReflect>> {
-        let (_, reactives) = self.reactives.get(entity).ok()?;
+    fn get_reactive(&self, entity: Entity, component_name: &str) -> Option<(Option<String>, Box<dyn PartialReflect>)> {
+        let (_, name, reactives) = self.reactives.get(entity).ok()?;
         reactives
             .iter()
             .find(|x| x.reflect_short_type_path() == component_name)
-            .map(|r| r.clone_value())
+            .map(|r| (name.map(|name|name.as_str().to_string()), r.clone_value()))
     }
 
     fn resolve_id(&self, id: &Id) -> Option<Entity> {
@@ -117,7 +117,7 @@ impl<'a, R: EntityResolver> Iterator for PathWalker<'a, R> {
                 self.stopped = Some(PathWalkStop::EntityMissing);
                 return None;
             };
-            let Some(value) = self.resolver.get_reactive(entity, &component_name) else {
+            let Some((_, value)) = self.resolver.get_reactive(entity, &component_name) else {
                 self.stopped = Some(PathWalkStop::ComponentMissing(component_name.clone()));
                 return Some(PathStep::EntityJump {
                     access: offset_access.clone(),

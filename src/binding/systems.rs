@@ -8,11 +8,14 @@ use bevy::ecs::system::{SystemParam, SystemState, command};
 use bevy::prelude::*;
 use bevy::reflect::{
     DynamicEnum, ParsedPath, Reflect, ReflectFromPtr, ReflectMut, ReflectRef, Struct, TypeRegistry,
+    Typed,
 };
 use bevy_trait_query::All;
 
 use anyhow::{Result, anyhow};
 use common::prelude::*;
+
+pub type ReactivesQuery<'w, 's> = Query<'w, 's, (Entity, Option<&'static Name>, All<&'static mut dyn Reactive>)>;
 
 #[derive(Event, Clone)]
 pub struct OnChange {
@@ -30,7 +33,7 @@ pub struct BindingsConfig {
 }
 
 impl BindingsConfig {
-    pub fn update_binding(&mut self, binding_entity: Entity, binding: Binding, reactives: &mut Query<(Entity, All<&'static mut dyn Reactive>)>, db_config: &mut ResMut<DBConfig>) {
+    pub fn update_binding(&mut self, binding_entity: Entity, binding: Binding, reactives: &mut ReactivesQuery, db_config: &mut ResMut<DBConfig>) {
         //let binding_id = Uuid::new_v4();
         //self.bindings.insert(binding_id, binding.clone());
 
@@ -58,7 +61,7 @@ impl BindingsConfig {
     }
 
     fn get_source_entities(
-        reactives: &Query<(Entity, All<&'static mut dyn Reactive>)>,
+        reactives: &ReactivesQuery,
         db_config: &DBConfig,
         source_entity: Option<Entity>,
         source_component_name: String,
@@ -77,7 +80,7 @@ impl BindingsConfig {
 
         let resolver = ReactiveResolver { reactives, db_config };
 
-        let Some(root) = resolver.get_reactive(source_entity, &source_component_name) else {
+        let Some((_, root)) = resolver.get_reactive(source_entity, &source_component_name) else {
             return source_entities;
         };
 
@@ -85,7 +88,7 @@ impl BindingsConfig {
 
         for step in PathWalker::new(root, &parsed_path, &resolver) {
             if let PathStep::EntityJump { entity, component_name, .. } = step {
-                info!("Found entity jump! Entity: {}, Component: {}", entity, component_name);
+                debug!("Found entity jump! Entity: {}, Component: {}", entity, component_name);
                 source_entities.push((entity, component_name));
             }
         }
@@ -202,6 +205,8 @@ impl FluxCommands<'_, '_> {
 // TODO: Add check to see whether entity already exists or not
 pub fn load_record(id: Id, db_config: &mut ResMut<DBConfig>, commands: &mut Commands) -> Entity{
 
+    info!("Loading record with ID: {:#}", id);
+
     let entity = commands.spawn((DBRecord { id: id.clone() }, Loading {})).id();
 
     db_config.insert_entity(
@@ -226,7 +231,7 @@ pub struct FluxWorld<'w, 's> {
     pub db_config: ResMut<'w, DBConfig>,
     pub bindings: Query<'w, 's, (Entity, Mut<'static, Binding>)>,
     // A list of all reactives in the world
-    pub reactives: Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>,
+    pub reactives: ReactivesQuery<'w, 's>
 }
 
 impl<'w, 's> FluxWorld<'w, 's> {
@@ -256,7 +261,7 @@ impl<'w, 's> FluxWorld<'w, 's> {
         let mut changed_bindings = HashSet::new();
 
         // If any reactive has changed and is the source of a binding, re-apply that binding
-        for (entity, reactives) in self.reactives.iter() {
+        for (entity, _, reactives) in self.reactives.iter() {
             for reactive in reactives.iter() {
                 if reactive.is_added() || reactive.is_changed() {
                     
@@ -353,6 +358,28 @@ impl<'w, 's> FluxWorld<'w, 's> {
         self.config.get_target_bindings(entity)
     }
 
+    pub fn find_target_binding<T: Typed>(&mut self, target_entity: Entity) -> Option<Entity> {
+        let target_component_name = T::short_type_path();
+        let indexed_bindings: Vec<Entity> = self
+            .get_target_bindings(target_entity)
+            .iter()
+            .cloned()
+            .collect();
+
+        indexed_bindings.into_iter().find_map(|binding_entity| {
+            let binding = self.bindings.get(binding_entity).ok()?.1;
+                (binding.get_target_component_name() == target_component_name)
+                    .then_some(binding_entity)
+            })
+            .or_else(|| {
+                self.bindings.iter().find_map(|(binding_entity, binding)| {
+                    (binding.get_target_entity() == Some(target_entity)
+                        && binding.get_target_component_name() == target_component_name)
+                        .then_some(binding_entity)
+                })
+            })
+    }
+
     pub fn get_binding(&mut self, entity: Entity) -> Mut<'_, Binding> {
         let (_, mut binding) = self.bindings.get_mut(entity).unwrap();
         binding
@@ -404,26 +431,29 @@ impl<'w, 's> FluxWorld<'w, 's> {
         commands: &mut Commands<'w, 's>,
         type_registry: &mut TypeRegistry,
         db_config: &DBConfig,
-        reactives: &mut Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>,
+        reactives: &mut ReactivesQuery<'w, 's>,
         binding: Binding,
         changed_reactives: &mut HashSet<(Entity, String)>,
     ) -> Result<()> {
+
         let source_component_name = binding.get_source_component_name();
 
         let Some(source_entity) = binding.source_entity else { return Ok(()); };
         let Some(target_entity) = binding.target_entity else { return Ok(()); };
 
-        let Some(source_value) = resolve_source_value(
+        let Some((source_name, source_value)) = resolve_source_value(
             reactives,
             db_config,
             source_entity,
             binding.source_component_name.clone(),
             binding.source_property_path.clone(),
         ) else {
-            info!("Failed to resolve source value for binding: {}. Source entity: <{}>. Source component: {}. Source property path: {:?}.", binding.to_string(), source_entity, source_component_name, binding.source_property_path);
+            debug!("Failed to resolve source value for binding: {}. Source entity: <{:?}>. Source component: {}. Source property path: {:?}.", binding.to_string(),  source_entity, source_component_name, binding.source_property_path);
             return Ok(());
         };
 
+        info!("Applying binding:\n\nSource entity name: {}\nLatest value: {}\n\n{}", source_name.as_deref().unwrap_or("Unknown"), source_value.to_string_pretty(), binding.to_string());
+        
         apply_value_at_target_path(
             reactives,
             db_config,
@@ -702,7 +732,6 @@ impl<'w, 's> FluxWorld<'w, 's> {
                                                 if !source_value.reflect_partial_eq(target_value.as_partial_reflect()).unwrap_or(false) {
                                                     /*
                                                     if target_value.reflect_short_type_path() == "Dynamic" {
-                                                        info!("IS DYNAMIC!");
                                                         if let ReflectRef::Struct(struct_ref) = target_value.reflect_ref() {
                                                             info!("IS STRUCT!");
                                                         }
@@ -795,6 +824,10 @@ impl Binding {
         self.target_entity.clone()
     }
 
+    pub fn get_target_component_name(&self) -> &str {
+        &self.target_component_name
+    }
+
     pub fn to_string(&self) -> String {
         format!(
             "<{}>.{}{} -> <{}>.{}{}",
@@ -818,7 +851,7 @@ fn path_to_string(property_path: &Option<String>) -> String {
 
 fn entity_to_string(entity: &Option<Entity>) -> String {
     if let Some(entity) = entity {
-        entity.to_string()
+        format!("{:?}", entity).split("#").last().unwrap().to_string()
     } else {
         "?".to_string()
     }
@@ -1117,17 +1150,17 @@ pub fn propogate_forms(
 /// the path. Returns None if the root component is missing, the path fails to parse, or
 /// the walk stops early (dead entity, missing component, Option::None, bad access, etc.).
 pub fn resolve_source_value<'w, 's>(
-    reactives: &Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>,
+    reactives: &ReactivesQuery<'w, 's>,
     db_config: &DBConfig,
     entity: Entity,
     component_name: String,
     property_path: Option<String>,
-) -> Option<Box<dyn PartialReflect>> {
+) -> Option<(Option<String>, Box<dyn PartialReflect>)> {
     let resolver = ReactiveResolver { reactives, db_config };
 
 
-    let root = match resolver.get_reactive(entity, &component_name) {
-        Some(root) => root,
+    let (root_name, root_value) = match resolver.get_reactive(entity, &component_name) {
+        Some((name, root)) => (name, root),
         None => {
             //info!("Failed to get reactive component.");
             return None;
@@ -1135,11 +1168,11 @@ pub fn resolve_source_value<'w, 's>(
     };
 
     let Some(property_path) = property_path else {
-        return Some(root);
+        return Some((root_name, root_value));
     };
 
     let parsed_path = OptionalParsedPath::parse(&property_path).expect("Failed to parse property path");
-    let mut walker = PathWalker::new(root, &parsed_path, &resolver);
+    let mut walker = PathWalker::new(root_value, &parsed_path, &resolver);
 
     // Drain the walker fully; PathStep values themselves aren't needed here,
     // only the final resting value and whether it stopped early.
@@ -1165,7 +1198,7 @@ pub fn resolve_source_value<'w, 's>(
         return None;
     }
 
-    Some(walker.current_value().clone_value())
+    Some((root_name, walker.current_value().clone_value()))
 }
 
 /// Resolves `target_property_path` (or the whole component, if `None`) starting from
@@ -1173,7 +1206,7 @@ pub fn resolve_source_value<'w, 's>(
 /// fields exactly like the source-side walker — but chaining real mutable borrows within
 /// each component, so the final leaf can actually be written to (not cloned).
 pub fn apply_value_at_target_path<'w, 's>(
-    reactives: &mut Query<'w, 's, (Entity, All<&'static mut dyn Reactive>)>,
+    reactives: &mut ReactivesQuery<'w, 's>,
     db_config: &DBConfig,
     target_entity: Entity,
     target_component_name: String,
@@ -1192,7 +1225,7 @@ pub fn apply_value_at_target_path<'w, 's>(
     let mut path_index = 0usize;
 
     loop {
-        let Ok((_, mut target_reactives)) = reactives.get_mut(current_entity) else {
+        let Ok((_, _, mut target_reactives)) = reactives.get_mut(current_entity) else {
             return Err(anyhow!(
                 "Failed to find entity <{}> while walking target path.",
                 current_entity
@@ -1292,7 +1325,7 @@ fn apply_value_with_changes(
     let different_types =
         _source_value.reflect_short_type_path() != target_value.reflect_short_type_path();
 
-    info!(
+    debug!(
         "Preparing to apply value to <{:?}>.{}. Value: {}. Target type: {}. Source is option: {}. Target is option: {}. Different types: {}.",
         target_entity,
         target_component_name,
@@ -1337,7 +1370,6 @@ fn apply_value_with_changes(
     }
 
     if target_value.is_dynamic() {
-        info!("Is dynamic!");
 
         let _source_value = _source_value.to_dynamic();
 
@@ -1345,7 +1377,7 @@ fn apply_value_with_changes(
             .reflect_partial_eq(_source_value.as_partial_reflect())
             .unwrap_or(false)
         {
-            info!("Applying (dynamic) value to <{:?}>.{}. Target type: {}. Source value: {}",
+            debug!("Applying (dynamic) value to <{:?}>.{}. Target type: {}. Source value: {}",
                 target_entity, target_component_name, target_value.reflect_short_type_path(), _source_value.as_partial_reflect().to_string_pretty()
             );
             target_value.apply(_source_value.as_ref());
@@ -1385,7 +1417,7 @@ fn apply_value_with_changes(
         }
         */
     } else {
-        info!("Is not dynamic!");
+        debug!("Is not dynamic!");
         if !target_value
             .reflect_partial_eq(_source_value.as_partial_reflect())
             .unwrap_or(false)

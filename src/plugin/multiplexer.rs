@@ -46,19 +46,23 @@ impl MultiplexerChannel {
     }
 
     pub fn send_ev(&mut self, ev: NetworkEvent) {
-        if self.num_receivers > 0 {
-            self.last_ev += 1;
-            self.buffer.push((self.num_receivers, ev));
+        self.last_ev += 1;
+        let lock_count = self.num_receivers.max(1);
+        self.buffer.push((lock_count, ev));
 
+        if self.num_receivers > 0 {
             if let Some(waker) = self.waker.take() {
                 waker.wake();
             }
-        } else {
-            //info!("No receivers found! {:?}", ev);
         }
     }
 
     pub fn recv_ev(&mut self, mut last_ev: &mut usize) -> Option<NetworkEvent> {
+        if *last_ev > self.last_ev {
+            *last_ev = self.last_ev;
+            return None;
+        }
+
         let ev_dif = self.last_ev - *last_ev;
 
         if ev_dif == 0 {
@@ -75,7 +79,12 @@ impl MultiplexerChannel {
         //    info!("{}", ev.get_ev_name());
         //}
 
-        let ev_index = self.buffer.len()-ev_dif;
+        if self.buffer.len() < ev_dif {
+            *last_ev = self.last_ev;
+            return None;
+        }
+
+        let ev_index = self.buffer.len() - ev_dif;
         let (lock_count, ev) = &mut self.buffer[ev_index];
 
         let ev = ev.clone();
@@ -85,7 +94,7 @@ impl MultiplexerChannel {
         if *lock_count == 0 {
             self.buffer.remove(ev_index);
         }
-        
+
         *last_ev += 1;
         Some(ev)
     }
@@ -208,8 +217,12 @@ impl Multiplexer {
         channel.num_receivers += 1;
         //info!("Added receiver for {}.", peer_id);
         
+        // Each receiver keeps its own read position. If the peer rebinds or the
+        // channel is re-established after a momentary disconnect, we still need to
+        // drain the queued backlog rather than starting at the channel's current
+        // global counter.
         Channel {
-            last_ev: channel.last_ev,
+            last_ev: 0,
             id: peer_id,
             multiplexer: self.clone()
         }
@@ -289,10 +302,10 @@ impl Multiplexer {
                             if _struct_info.type_path() == s.reflect_type_path() {
 
                                 let mut t = T::from_reflect(s).unwrap();
-                   
+                    
                                 //let mut t = T::default();
                                 //t.apply(s);
-                                
+                                 
                                 return Ok(t); 
                             }
                         }
@@ -301,5 +314,44 @@ impl Multiplexer {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queued_events_are_not_dropped_before_receiver_registration() {
+        let multiplexer = Multiplexer::new();
+        let sender_id = Id::new();
+        let recipient_id = Id::new();
+        let record_id = Id::new();
+
+        multiplexer.send(
+            recipient_id.clone(),
+            NetworkEvent::new(sender_id.clone(), TrackRecordEvent { entity_id: record_id.clone() }),
+        );
+
+        let mut rx = multiplexer.get_channel(recipient_id.clone());
+        let ev = rx.try_recv().expect("queued event should still be available");
+
+        assert_eq!(ev.peer_id, sender_id);
+        let tracked = ev.get_ev::<TrackRecordEvent>().expect("network event payload should deserialize");
+        assert_eq!(tracked.entity_id, record_id);
+        assert!(rx.try_recv().is_none());
+    }
+
+    #[test]
+    fn receiver_state_cannot_advance_past_channel_state() {
+        let mut channel = MultiplexerChannel::new(Id::new());
+        let sender_id = Id::new();
+        let record_id = Id::new();
+
+        channel.send_ev(NetworkEvent::new(sender_id.clone(), TrackRecordEvent { entity_id: record_id.clone() }));
+
+        let mut last_ev = 2usize;
+        assert!(channel.recv_ev(&mut last_ev).is_none());
+        assert_eq!(last_ev, channel.last_ev);
     }
 }

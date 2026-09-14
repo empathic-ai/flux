@@ -378,7 +378,7 @@ pub fn process_reactive_lists(mut commands: Commands, reactive_lists: Query<(Ent
                 DynamicList::short_type_path()
             };
 
-            info!("List of type {} changed! List length: {}", list_type, list.value.len());
+            debug!("List of type {} changed! List length: {}", list_type, list.value.len());
 
             commands.entity(entity).despawn_related::<Children>();
 
@@ -405,7 +405,7 @@ pub fn process_reactive_lists(mut commands: Commands, reactive_lists: Query<(Ent
                         use bevy::ecs::system::SystemState;
                         use nameof::{name_of, name_of_type};
 
-                        let mut system_state: SystemState<(Res<DBConfig>, Query<(Entity, All<&'static mut dyn Reactive>)>)> =
+                        let mut system_state: SystemState<(Res<DBConfig>, ReactivesQuery)> =
                             SystemState::new(world);
                         let (db_config, mut reactives) = system_state.get_mut(world);
 

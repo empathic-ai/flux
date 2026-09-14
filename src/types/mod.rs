@@ -438,9 +438,13 @@ impl Id {
     }
 
     pub fn from(text: &str) -> Self {
-        Self {
-            id: Uuid::from_str(text).unwrap(),
-        }
+        Self::try_from(text).expect("Id must contain a valid UUID")
+    }
+
+    pub fn try_from(text: &str) -> Result<Self, uuid::Error> {
+        Ok(Self {
+            id: Uuid::from_str(text)?,
+        })
     }
 
     pub fn to_pretty_string(&self) -> String {
@@ -465,7 +469,7 @@ impl<'de> Deserialize<'de> for Id {
         D: Deserializer<'de>,
     {
         let id = String::deserialize(deserializer)?;
-        Ok(Id::from(&id))
+        Id::try_from(&id).map_err(serde::de::Error::custom)
     }
 }
 
