@@ -1,7 +1,4 @@
-use bevy::reflect::DynamicStruct;
-use bevy::reflect::ReflectRef;
-use bevy::reflect::TypeInfo;
-use bevy::reflect::Typed;
+use bevy_reflect::{FromReflect, Reflect, ReflectRef, Struct, TypeInfo, Typed};
 //use tokio::sync::broadcast;
 //use tokio::sync::broadcast::Sender;
 //use tokio::sync::broadcast::Receiver;
@@ -19,7 +16,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Poll, Context, Waker};
 use anyhow::Result;
 use crate::prelude::*;
-use bevy::prelude::*;
 
 #[derive(Clone)]
 pub struct Multiplexer {
@@ -41,7 +37,7 @@ impl MultiplexerChannel {
     pub fn new(peer_id: Id) -> Self {
         Self {
             peer_id,
-            ..default()
+            ..Default::default()
         }
     }
 

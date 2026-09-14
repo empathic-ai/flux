@@ -6,8 +6,7 @@ use bevy_async_ecs::{AsyncEcsPlugin, AsyncWorld};
 #[cfg(feature = "tokio")]
 use bevy_wasm_tasks::*;
 
-mod multiplexer;
-pub use multiplexer::*;
+pub use crate::multiplexer::*;
 
 mod systems;
 pub use systems::*;

@@ -205,7 +205,7 @@ impl FluxCommands<'_, '_> {
 // TODO: Add check to see whether entity already exists or not
 pub fn load_record(id: Id, db_config: &mut ResMut<DBConfig>, commands: &mut Commands) -> Entity{
 
-    info!("Loading record with ID: {:#}", id);
+    debug!("Loading record with ID: {:#}", id);
 
     let entity = commands.spawn((DBRecord { id: id.clone() }, Loading {})).id();
 
@@ -244,6 +244,7 @@ impl<'w, 's> FluxWorld<'w, 's> {
 
         for (binding_entity, binding) in self.bindings.iter() {
             if binding.is_added() || binding.is_changed() {
+                tracing::debug!(?binding_entity, "Registering changed binding");
                 self.config.update_binding(binding_entity, binding.clone(), &mut self.reactives, &mut self.db_config);
                 Self::apply_binding_internal(
                     &mut self.commands,
@@ -277,9 +278,12 @@ impl<'w, 's> FluxWorld<'w, 's> {
                         //}
                     }
                     
-                    //info!("Reactive added or changed: <{}>.{} Value:\n\n{}.\n\nChanged bindings: {}", entity, component_name, reactive.to_string_pretty(), changed_bindings_num);
+                    tracing::trace!(%entity, %component_name, changed_bindings_num, "Reactive changed");
                 }
             }
+        }
+        if !changed_bindings.is_empty() {
+            tracing::debug!(bindings = changed_bindings.len(), "Updating bindings after reactive changes");
         }
         for binding_entity in changed_bindings.iter() {
             self.config.update_binding(binding_entity.clone(), self.bindings.get(binding_entity.clone()).unwrap().1.clone(), &mut self.reactives, &mut self.db_config);
@@ -452,7 +456,7 @@ impl<'w, 's> FluxWorld<'w, 's> {
             return Ok(());
         };
 
-        info!("Applying binding:\n\nSource entity name: {}\nLatest value: {}\n\n{}", source_name.as_deref().unwrap_or("Unknown"), source_value.to_string_pretty(), binding.to_string());
+        tracing::trace!(?source_entity, %source_component_name, "Applying binding");
         
         apply_value_at_target_path(
             reactives,
@@ -1325,16 +1329,7 @@ fn apply_value_with_changes(
     let different_types =
         _source_value.reflect_short_type_path() != target_value.reflect_short_type_path();
 
-    debug!(
-        "Preparing to apply value to <{:?}>.{}. Value: {}. Target type: {}. Source is option: {}. Target is option: {}. Different types: {}.",
-        target_entity,
-        target_component_name,
-        _source_value.to_string_pretty(),
-        target_value.reflect_short_type_path(),
-        source_is_option,
-        target_is_option,
-        different_types
-    );
+    tracing::trace!(?target_entity, %target_component_name, source_is_option, target_is_option, different_types, "Preparing binding value");
 
     if different_types {
         if source_is_option && !target_is_option {
@@ -1377,9 +1372,7 @@ fn apply_value_with_changes(
             .reflect_partial_eq(_source_value.as_partial_reflect())
             .unwrap_or(false)
         {
-            debug!("Applying (dynamic) value to <{:?}>.{}. Target type: {}. Source value: {}",
-                target_entity, target_component_name, target_value.reflect_short_type_path(), _source_value.as_partial_reflect().to_string_pretty()
-            );
+            tracing::trace!(?target_entity, %target_component_name, "Applying dynamic binding value");
             target_value.apply(_source_value.as_ref());
             changed_reactives.insert((target_entity, target_component_name));
         }
@@ -1417,7 +1410,7 @@ fn apply_value_with_changes(
         }
         */
     } else {
-        debug!("Is not dynamic!");
+        tracing::trace!("Applying concrete binding value");
         if !target_value
             .reflect_partial_eq(_source_value.as_partial_reflect())
             .unwrap_or(false)

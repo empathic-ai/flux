@@ -43,3 +43,9 @@ fn create_simple_ui(mut commands: Commands) {
   });
 }
 ```
+
+
+## Logging
+
+See the workspace [logging guide](../../docs/logging.md) for selectable groups,
+local configuration, VS Code controls, and platform-specific behavior.

@@ -40,6 +40,10 @@ pub mod plugin;
 #[cfg(feature = "bevy_reflect")]
 pub mod types;
 
+#[cfg(feature = "bevy_reflect")]
+#[path = "plugin/multiplexer.rs"]
+pub mod multiplexer;
+
 pub mod prelude {
 	#[cfg(feature = "server")]
 	pub use crate::server::*;
@@ -61,6 +65,8 @@ pub mod prelude {
 	pub use crate::functions::*;
 	#[cfg(feature = "bevy")]
 	pub use crate::plugin::*;
+	#[cfg(feature = "bevy_reflect")]
+	pub use crate::multiplexer::*;
 	#[cfg(feature = "bevy_reflect")]
 	pub use crate::types::*;
 	#[cfg(feature = "bevy_reflect")]
