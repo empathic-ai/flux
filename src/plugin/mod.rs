@@ -75,6 +75,8 @@ impl FluxPlugin {
 impl Plugin for FluxPlugin {
     fn build(&self, app: &mut App) {
 
+        if !app.is_plugin_added::<EditBindingPlugin>() { app.add_plugins(EditBindingPlugin); }
+
         app.insert_state(DbState::Connecting)
             .insert_resource(self.config.clone())
             .insert_resource(BindingsConfig::default())

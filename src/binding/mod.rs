@@ -17,3 +17,9 @@ pub use optional_path::*;
 
 pub mod path_walker;
 pub use path_walker::*;
+pub mod graph;
+pub use graph::*;
+
+#[doc(hidden)]
+#[path = "macro_support.rs"]
+pub mod __macro_support;

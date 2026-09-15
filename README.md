@@ -49,3 +49,8 @@ fn create_simple_ui(mut commands: Commands) {
 
 See the workspace [logging guide](../../docs/logging.md) for selectable groups,
 local configuration, VS Code controls, and platform-specific behavior.
+
+## Composable binding graphs
+
+See [binding graphs](docs/binding-graphs.md) for ECS-aware functions, list unions,
+two-way editing, scheduling, examples, and architectural references.

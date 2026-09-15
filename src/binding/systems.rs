@@ -1253,6 +1253,15 @@ pub fn apply_value_at_target_path<'w, 's>(
         // Walk forward, chaining real mutable borrows, until the path ends or we hit
         // an Id-typed value that needs to jump to a different entity/component.
         while path_index < parsed_path.0.len() {
+            // Match PathWalker: unwrap an Option before interpreting the next
+            // access, especially before checking for an Id entity jump.
+            if is_option(&current_value.to_dynamic()) {
+                let ReflectMut::Enum(value) = current_value.reflect_mut() else {
+                    return Err(anyhow!("Expected Option enum while walking target path"));
+                };
+                current_value = value.field_at_mut(0)
+                    .ok_or_else(|| anyhow!("Option was None while walking target path"))?;
+            }
             if let Some(id) = Id::from_reflect(&*current_value) {
                 let offset_access = &parsed_path.0[path_index];
                 let component_name = offset_access.access.display_value().to_string();
@@ -1350,15 +1359,22 @@ fn apply_value_with_changes(
     // since ReflectFromReflect isn't meant for Dynamic* wrapper types.
     if matches!(target_value.reflect_ref(), ReflectRef::List(_) | ReflectRef::Array(_)) {
         if !target_value
-            .reflect_partial_eq(source_value.as_partial_reflect())
+            .reflect_partial_eq(_source_value.as_partial_reflect())
             .unwrap_or(false)
         {
             target_value
-                .try_apply(source_value.as_partial_reflect())
+                .try_apply(_source_value.as_partial_reflect())
                 .map_err(|err| anyhow!(
                     "Failed to apply list/array value to target component '{}': {}",
                     target_component_name, err
                 ))?;
+            // Reflection applies lists as a patch; bindings assign snapshots.
+            // Remove trailing items when a filtered/merged list becomes shorter.
+            if let (ReflectMut::List(target), ReflectRef::List(source)) =
+                (target_value.reflect_mut(), _source_value.reflect_ref())
+            {
+                while target.len() > source.len() { target.pop(); }
+            }
             changed_reactives.insert((target_entity, target_component_name));
         }
         return Ok(());
@@ -1373,7 +1389,7 @@ fn apply_value_with_changes(
             .unwrap_or(false)
         {
             tracing::trace!(?target_entity, %target_component_name, "Applying dynamic binding value");
-            target_value.apply(_source_value.as_ref());
+            target_value.try_apply(_source_value.as_ref()).map_err(|error| anyhow!("Binding target type mismatch: {error}"))?;
             changed_reactives.insert((target_entity, target_component_name));
         }
         /* 
@@ -1415,7 +1431,7 @@ fn apply_value_with_changes(
             .reflect_partial_eq(_source_value.as_partial_reflect())
             .unwrap_or(false)
         {
-            target_value.apply(_source_value.as_ref());
+            target_value.try_apply(_source_value.as_ref()).map_err(|error| anyhow!("Binding target type mismatch: {error}"))?;
             changed_reactives.insert((target_entity, target_component_name));
         }
     }

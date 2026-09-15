@@ -1,6 +1,6 @@
 use crate::prelude::*;
 #[cfg(feature = "bevy")]
-use bevy::{ecs::component::Mutable, prelude::*, asset::ron::ser::{PrettyConfig, to_string_pretty}};
+use bevy::{ecs::component::Mutable, prelude::*};
 #[cfg(feature = "bevy")]
 use bevy_reflect::{GetTypeRegistration, Typed};
 #[cfg(feature = "bevy_reflect")]
@@ -8,6 +8,8 @@ use bevy_reflect::{DynamicStruct, prelude::*};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 #[cfg(feature = "serde")]
 use serde_with::serde_as;
+#[cfg(feature = "bevy_reflect")]
+use ron::ser::{PrettyConfig, to_string_pretty};
 use smart_clone::SmartClone;
 use std::{fmt::Debug, str::FromStr};
 use uuid::Uuid;
@@ -28,12 +30,12 @@ pub use in_option::*;
 pub mod dynamic_struct_serde;
 pub mod dynamic_list_serde;
 
-#[cfg(feature = "bevy")]
+#[cfg(feature = "bevy_reflect")]
 pub trait ToStringPretty {
     fn to_string_pretty(&self) -> String;
 }
 
-#[cfg(feature = "bevy")]
+#[cfg(feature = "bevy_reflect")]
 impl<T> ToStringPretty for T
 where
     T: PartialReflect
@@ -43,14 +45,14 @@ where
     }
 }
 
-#[cfg(feature = "bevy")]
+#[cfg(feature = "bevy_reflect")]
 impl ToStringPretty for dyn Reactive {
     fn to_string_pretty(&self) -> String {
         self.as_partial_reflect().to_string_pretty()
     }
 }
 
-#[cfg(feature = "bevy")]
+#[cfg(feature = "bevy_reflect")]
 impl ToStringPretty for dyn PartialReflect {
     fn to_string_pretty(&self) -> String {
         use bevy_reflect::{TypeRegistry, serde::ReflectSerializer};
@@ -64,12 +66,12 @@ impl ToStringPretty for dyn PartialReflect {
     }
 }
 
-#[cfg(feature = "bevy")]
+#[cfg(feature = "bevy_reflect")]
 pub trait ToDynamicStruct {
     fn to__dynamic_struct(&self) -> Option<DynamicStruct>;
 }
 
-#[cfg(feature = "bevy")]
+#[cfg(feature = "bevy_reflect")]
 impl<T> ToDynamicStruct for T
 where
     T: PartialReflect
@@ -79,7 +81,7 @@ where
     }
 }
 
-#[cfg(feature = "bevy")]
+#[cfg(feature = "bevy_reflect")]
 impl ToDynamicStruct for dyn PartialReflect {
     fn to__dynamic_struct(&self) -> Option<DynamicStruct> {
         use bevy_reflect::ReflectRef;

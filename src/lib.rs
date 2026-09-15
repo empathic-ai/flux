@@ -5,6 +5,9 @@
 #![feature(must_not_suspend)]
 #![warn(must_not_suspend)]
 
+// Also resolve macro expansions in our own library, integration tests, and doctests.
+extern crate self as flux;
+
 // Re-export the SDK used by the public database helpers so callers share its types.
 #[cfg(feature = "surrealdb")]
 pub use ::surrealdb as surrealdb_client;

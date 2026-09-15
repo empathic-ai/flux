@@ -56,6 +56,7 @@ common = { git = "https://github.com/empathic-ai/common.git", default-features =
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 nameof = "1.2.2"
 lazy_static = "1.4.0"
+ron = { version = "0.8.1" }
 
 [target.'cfg(all(not(target_arch = "xtensa")))'.dependencies]
 async-channel = { version = "2" }

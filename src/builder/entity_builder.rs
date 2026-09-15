@@ -7,6 +7,8 @@ use crate::prelude::*;
 use common::prelude::*;
 use nameof::{name_of, name_of_type};
 
+use anyhow::Result;
+
 pub struct EntityBuilder<'a> {
     entity_commands: EntityCommands<'a>,
     //custom_steps: Vec<Box<dyn Fn(&mut EntityCommands) + 'a>>, // Store closures for custom steps
@@ -27,10 +29,6 @@ impl<'a> EntityBuilder<'a> {
             entity_commands: entity_commands, 
             //custom_steps: Vec::new(),
         }
-    }
-
-    pub fn bind_route_record(&mut self, component_name: &str) -> &mut Self {
-        self.bind_component(None, component_name)
     }
 }
 
@@ -249,77 +247,130 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
-    fn bind_component(&mut self, entity: Option<Entity>, component_name: &str) -> &mut Self {
-        let id = self.id().clone();
-        let component_name = component_name.to_string();
-        self.get_commands().commands().queue(move |world: &mut World| {
-            world.run_system_once(move |mut bindings: FluxWorld| {
-                bindings.add_binding(Binding {
-                    source_entity: entity,
-                    source_component_name: component_name.clone(),
-                    source_property_path: None,
-                    target_entity: Some(id),
-                    target_component_name: component_name.clone(),
-                    target_property_path: None,
-                    entity_func: None
-                });
-            });
-        });
-        self
-    }
-
-    fn bind_component_to(
-        &mut self,
-        entity: Option<Entity>,
-        source_component_name: &str,
-        target_component_name: &str,
-        target_property_path: &str,
-    ) -> &mut Self {
-        let id = self.id().clone();
-        let source_component_name = source_component_name.to_string();
-        let target_component_name = target_component_name.to_string();
-        let target_property_path = target_property_path.to_string();
-        self.get_commands().commands().queue(move |world: &mut World| {
-            world.run_system_once(move |mut bindings: FluxWorld| {
-                bindings.add_binding(Binding {
-                    source_entity: entity,
-                    source_component_name: source_component_name.clone(),
-                    source_property_path: None,
-                    target_entity: Some(id),
-                    target_component_name: target_component_name.clone(),
-                    target_property_path: Some(target_property_path.clone()),
-                    entity_func: None,
-                });
-            });
-        });
-        self
+    fn queue_builder_binding(&mut self, source: Result<BindingPath>, target: Result<BindingPath>) {
+        queue_builder_binding(&mut self.get_commands().commands(), source, target);
     }
 
     fn bind_self_property(&mut self, source_component_name: &str, source_property_path: &str, target_component_name: &str, target_property_path: &str) -> &mut Self {
         let id = self.id().clone();
-        self.bind_component_property(Some(id), source_component_name, source_property_path, target_component_name, target_property_path)
+        self.bind_component_property(id, source_component_name, source_property_path, target_component_name, target_property_path)
     }
 
-    fn bind_component_property(&mut self, entity: Option<Entity>, source_component_name: &str, source_property_path: &str, target_component_name: &str, target_property_path: &str) -> &mut Self {
-        let id = self.id().clone();
-        let source_component_name = source_component_name.to_string();
-        let source_property_path = source_property_path.to_string();
-        let target_component_name = target_component_name.to_string();
-        let target_property_path = target_property_path.to_string();
-        self.get_commands().commands().queue(move |world: &mut World| {
-            world.run_system_once(move |mut bindings: FluxWorld| {
-                bindings.add_binding(Binding {
-                    source_entity: entity,
-                    source_component_name: source_component_name.clone(),
-                    source_property_path: Some(source_property_path.clone()),
-                    target_entity: Some(id),
-                    target_component_name: target_component_name.clone(),
-                    target_property_path: Some(target_property_path.clone()),
-                    entity_func: None
-                });
-            });
+    fn bind_component_property(&mut self, entity: Entity, source_component_name: &str, source_property_path: &str, target_component_name: &str, target_property_path: &str) -> &mut Self {
+        let source = BindingPath::new(entity, source_component_name, Some(source_property_path));
+        let target = BindingPath::new(self.id(), target_component_name, Some(target_property_path));
+        self.queue_builder_binding(source, target);
+        self
+    }
+
+    /// Checked path equivalent of bind_component_property, using this entity as
+    /// the destination. Direct graphs retain the existing change-driven timing.
+    fn bind_from(&mut self, source: impl IntoBindingPath, target: impl IntoComponentBindingPath) -> &mut Self {
+        match (source.into_binding_path(), target.into_component_binding_path()) {
+            (Ok(source), Ok(target)) => {
+                let target = target.at(self.id());
+                queue_checked_builder_binding(&mut self.get_commands().commands(), source, target);
+            }
+            (Err(error), _) | (_, Err(error)) => {
+                self.get_commands().commands().queue(move |_: &mut World| -> bevy::prelude::Result { Err(error.into()) });
+            }
+        }
+        self
+    }
+
+    /// Bind a computed node using BindingGraphPlugin's explicit runtime.
+    /// Unlike bind_from, this refreshes every graph evaluation.
+    fn bind_node(&mut self, mut graph: BindingGraph, node: BindingNode, target: impl IntoComponentBindingPath) -> BindingResult<&mut Self> {
+        let owner = self.id();
+        graph.bind(node, target.into_component_binding_path()?.at(owner))?;
+        self.get_commands().commands().bind_graph(owner, graph);
+        Ok(self)
+    }
+
+    /// Checked list source with the existing row construction and list renderer.
+    fn bind_list_from<S, SM>(&mut self, source: impl IntoBindingPath, create_entity_system: S) -> &mut Self
+    where S: EntitySys<SM> {
+        use bevy::reflect::List;
+        let create_entity_func = EntityFunc::new(&mut self.get_commands().commands(), create_entity_system);
+        self.insert(ReactiveListView {
+            value: Vec::<()>::new().to_dynamic_list(),
+            create_entity_func: Some(create_entity_func),
+        });
+        // The fixed destination is checked by the same macro used by callers.
+        self.bind_from(source, component_path!(ReactiveListView.value))
+    }
+
+    /// Collection editing with explicit identity and write policy. Requires EditBindingPlugin.
+    /// The renderer receives EditSession<A::Item> and EditStatus on each row.
+    fn bind_editable_list_from<A, S, SM>(&mut self, source: impl IntoBindingPath, adapter: A,
+        policy: EditPolicy, render: S) -> &mut Self
+    where A: EditCollection, S: EntitySys<SM> {
+        self.bind_validated_editable_list_from(source, adapter, policy, |_| true, render)
+    }
+
+    /// Like bind_editable_list_from, with a pure validator checked before committing.
+    fn bind_validated_editable_list_from<A, S, SM>(&mut self, source: impl IntoBindingPath, adapter: A,
+        policy: EditPolicy, validate: impl Fn(&A::Item) -> bool + Send + Sync + 'static, render: S) -> &mut Self
+    where A: EditCollection, S: EntitySys<SM> {
+        let owner = self.id();
+        let source = source.into_binding_path();
+        let render = EditRenderer::new(render);
+        self.get_commands().commands().queue(move |world: &mut World| -> bevy::prelude::Result {
+            install_edit_binding(world, owner, source?, adapter, policy, render, validate)?;
+            Ok(())
         });
         self
+    }
+
+    /// Read-only text presentation with browser input enforcement.
+    fn bind_read_only_input_from(&mut self, source: impl IntoBindingPath) -> &mut Self {
+        self.get_commands().entry::<InputField>().and_modify(|mut input| input.read_only = true);
+        self.bind_from(source, component_path!(InputField.text))
+    }
+
+    /// Edit one scalar or form through the same lifecycle as collection rows.
+    fn bind_edit_from<T, S, SM>(&mut self, source: impl IntoBindingPath, policy: EditPolicy, render: S) -> &mut Self
+    where T: Reflect + FromReflect + Clone + PartialEq, S: EntitySys<SM> {
+        self.bind_editable_list_from(source, EditValue::<T>::default(), policy, render)
+    }
+
+    /// Connect this InputField to a field of an edit session; manual editors require begin().
+    fn bind_edit_input<T: Clone + Send + Sync + 'static>(&mut self, session: Entity,
+        get: impl Fn(&T) -> String + Send + Sync + 'static,
+        set: impl Fn(&mut T, String) + Send + Sync + 'static) -> &mut Self {
+        let input = self.id();
+        self.get_commands().commands().queue(move |world: &mut World| -> bevy::prelude::Result {
+            install_edit_input(world, input, session, get, set)?;
+            Ok(())
+        });
+        self
+    }
+
+    /// Fallible text conversion preserves invalid input and blocks the session's Save.
+    fn bind_edit_input_try<T: Clone + Send + Sync + 'static>(&mut self, session: Entity,
+        get: impl Fn(&T) -> String + Send + Sync + 'static,
+        set: impl Fn(&mut T, String) -> std::result::Result<(), EditError> + Send + Sync + 'static) -> &mut Self {
+        let input = self.id();
+        self.get_commands().commands().queue(move |world: &mut World| -> bevy::prelude::Result {
+            install_edit_input_try(world, input, session, get, set)?;
+            Ok(())
+        });
+        self
+    }
+
+    /// Computed list source; row callbacks and ReactiveListView remain unchanged.
+    fn bind_list_node<S, SM>(&mut self, mut graph: BindingGraph, node: BindingNode, create_entity_system: S) -> BindingResult<&mut Self>
+    where S: EntitySys<SM> {
+        use bevy::reflect::List;
+        let owner = self.id();
+        graph.bind(node, binding_path!(owner, ReactiveListView.value)?)?;
+        let create_entity_func = EntityFunc::new(&mut self.get_commands().commands(), create_entity_system);
+        self.insert(ReactiveListView {
+            value: Vec::<()>::new().to_dynamic_list(),
+            create_entity_func: Some(create_entity_func),
+        });
+        self.get_commands().commands().bind_graph(owner, graph);
+        Ok(self)
     }
 
     fn bind_property(&mut self, entity: Option<Entity>, property_name: &str) -> &mut Self {
@@ -343,7 +394,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_list<S, SM>(&mut self, entity: Option<Entity>, component_name: &str, property_name: &str, create_entity_system: S) -> &mut Self
+    fn bind_list<S, SM>(&mut self, entity: Entity, component_name: &str, property_name: &str, create_entity_system: S) -> &mut Self
     where S: EntitySys<SM> {
         use bevy::reflect::List;
 
@@ -383,13 +434,6 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self.insert(
             Router { ..default() }
         )
-    }
-
-    fn route(&mut self, name: &str) -> &mut Self {
-        self.insert((
-            Route { name: name.to_string() },
-            Name::new(name.to_string())
-        ))
     }
 
     fn large_space(&mut self, image: String) -> &mut Self {
@@ -964,7 +1008,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     ..default()
                 }
             )).id();
-            parent.child().v_list().bind_list(Some(entity), "", "results",
+            parent.child().v_list().bind_list(entity, "", "results",
                 |In(entity), mut commands: Commands| {
                     commands.entity(entity).builder().label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true).bind_property(Some(entity), "");
                     Ok(())
@@ -1208,7 +1252,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     },
                     ..default()
                 },
-            )).bind_component_property(Some(entity), name_of_type!(TextButton), name_of!(label in TextButton), name_of_type!(TextLabel), name_of!(text in TextLabel));
+            )).bind_component_property(entity, name_of_type!(TextButton), name_of!(label in TextButton), name_of_type!(TextLabel), name_of!(text in TextLabel));
         }).scale_on_hover()
     }
 
@@ -1249,7 +1293,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                         brightness: get_secondary_brightness(color),
                         ..default()
                     },
-                )).bind_component_property(Some(entity), name_of_type!(ImageTextButton), name_of!(image in ImageTextButton), name_of_type!(ImageRect), name_of!(image in ImageRect));
+                )).bind_component_property(entity, name_of_type!(ImageTextButton), name_of!(image in ImageTextButton), name_of_type!(ImageRect), name_of!(image in ImageRect));
             parent.child().insert((
                 Control {
                     //ExpandWidth: true,
@@ -1262,7 +1306,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     color: get_secondary_color(color),
                     ..default()
                 },
-            )).bind_component_property(Some(entity), name_of_type!(ImageTextButton), name_of!(label in ImageTextButton), name_of_type!(TextLabel), name_of!(text in TextLabel));
+            )).bind_component_property(entity, name_of_type!(ImageTextButton), name_of!(label in ImageTextButton), name_of_type!(TextLabel), name_of!(text in TextLabel));
         })//.scale_on_hover()
     }
 

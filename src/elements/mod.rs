@@ -210,6 +210,9 @@ pub enum InputType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
 pub struct InputField {
+    /// Prevent user input; programmatic source refreshes remain allowed.
+    #[serde(default)]
+    pub read_only: bool,
     pub text: String,
     pub placeholder: String,
     pub input_type: InputType,
@@ -229,6 +232,7 @@ pub struct InputField {
 impl Default for InputField {
     fn default() -> Self {
         InputField {
+            read_only: false,
             text: "".to_string(),
             placeholder: "".to_string(),
             input_type: InputType::Default,
