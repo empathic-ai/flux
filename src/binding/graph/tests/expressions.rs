@@ -72,12 +72,13 @@ fn expression_systems_preserve_local_state_and_refresh_resources() {
             Ok(n + threshold.0 + *calls)
         },
     );
+    let mut expr = Some(expr);
     app.world_mut()
         .run_system_once(move |mut commands: Commands| {
             commands
                 .entity(target)
                 .builder()
-                .bind_from(expr, component_path!(Model.number));
+                .bind_from(expr.take().unwrap(), component_path!(Model.number));
         })
         .unwrap();
     app.update();

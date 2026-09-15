@@ -1,6 +1,7 @@
 use super::*;
 use bevy_trait_query::RegisterExt;
 mod processing;
+#[cfg(feature = "bevy_std")]
 mod expressions;
 
 #[derive(Component, Reflect, Clone, PartialEq)]
@@ -576,7 +577,7 @@ fn builders_preserve_pending_sources_cascades_and_local_edits() {
                 "number",
             );
             commands.entity(downstream).builder().bind_from(
-                binding_path!(editor, Model.number),
+                Ok(binding_path!(editor, Model.number).into_binding_expr()),
                 component_path!(Model.number),
             );
         })

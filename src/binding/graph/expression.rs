@@ -1,4 +1,4 @@
-//! Lazy, single-use binding recipes. No graph or ECS state is created until attachment.
+//! Lazy, single-use binding recipes. Graphs and ECS state are installed at attachment.
 use super::*;
 
 /// A path or computation that can be attached to a builder or added to a graph.
@@ -27,7 +27,10 @@ impl IntoBindingExpr for BindingExpr {
 }
 impl IntoBindingExpr for Result<BindingExpr> {
     fn into_binding_expr(self) -> BindingExpr {
-        BindingExpr(ExprKind::Computed(Box::new(move |graph| graph.add(self?))))
+        match self {
+            Ok(expression) => expression,
+            Err(error) => BindingExpr(ExprKind::Path(Err(error))),
+        }
     }
 }
 
