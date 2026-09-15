@@ -1,4 +1,4 @@
-use bevy::{prelude::*, reflect::{DynamicList, List}};
+use bevy::{prelude::*, reflect::{DynamicList, List, DynamicMap, Map}};
 use serde::{Deserialize, Serialize};
 use crate::prelude::*;
 use smart_clone::SmartClone;
@@ -16,6 +16,7 @@ pub struct AutoBindable {
     pub value: Box<dyn Reflect>
 }
 
+/// An owned presentation value of any reflected kind (including structs and collections).
 #[derive(Component, Clone, Debug, Reflect, Reactive, Serialize, Deserialize)]
 pub struct ReactiveView {
     pub value: Dynamic,
@@ -35,3 +36,22 @@ pub struct ReactiveListView {
 
 mod dynamic;
 pub use dynamic::Dynamic;
+
+/// Renders a map snapshot as children. Rows carry `ReactiveMapKey` and `ReactiveView`.
+/// As with list views, changes rebuild all children; iteration order is unspecified.
+#[derive(Component, SmartClone, Debug, Reflect, Reactive, Serialize, Deserialize)]
+pub struct ReactiveMapView {
+    #[clone(clone_with = "DynamicMap::to_dynamic_map")]
+    #[serde(with = "dynamic_map_serde")]
+    pub value: DynamicMap,
+    #[reflect(ignore)]
+    #[serde(skip)]
+    #[debug(skip)]
+    pub create_entity_func: Option<EntityFunc>,
+}
+
+/// The map key for a row; its value lives in `ReactiveView.value`.
+#[derive(Component, Clone, Debug, Reflect, Reactive, Serialize, Deserialize)]
+pub struct ReactiveMapKey {
+    pub value: Dynamic,
+}

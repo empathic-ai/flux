@@ -29,6 +29,7 @@ pub use in_option::*;
 
 pub mod dynamic_struct_serde;
 pub mod dynamic_list_serde;
+pub mod dynamic_map_serde;
 
 #[cfg(feature = "bevy_reflect")]
 pub trait ToStringPretty {

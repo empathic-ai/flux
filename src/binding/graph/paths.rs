@@ -7,7 +7,7 @@ use super::*;
 /// use flux::prelude::*;
 /// #[derive(Component, Reflect)]
 /// struct Example { value: i32 }
-/// let path = binding_path!(Entity::PLACEHOLDER, Example.value).unwrap();
+/// let path = path!(Entity::PLACEHOLDER, Example.value).unwrap();
 /// let target = component_path!(Example.value).unwrap().at(Entity::PLACEHOLDER);
 /// assert_eq!(path, target);
 /// assert_eq!(property_path!(Example.value), "value");
@@ -19,7 +19,7 @@ use super::*;
 /// use flux::prelude::*;
 /// #[derive(Component, Reflect)]
 /// struct Example { value: i32 }
-/// let path = binding_path!(Entity::PLACEHOLDER, Example.valeu);
+/// let path = path!(Entity::PLACEHOLDER, Example.valeu);
 /// ```
 ///
 /// Entity jumps require Id values, not arbitrary fields:
@@ -28,7 +28,7 @@ use super::*;
 /// use flux::prelude::*;
 /// #[derive(Component, Reflect)]
 /// struct Example { value: i32 }
-/// let path = binding_path!(Entity::PLACEHOLDER, Example.value -> Example.value);
+/// let path = path!(Entity::PLACEHOLDER, Example.value -> Example.value);
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComponentBindingPath {
@@ -55,87 +55,37 @@ impl ComponentBindingPath {
     }
 }
 
-impl BindingGraph {
-    /// Compile a graph containing only direct source-to-destination edges into
-    /// the existing change-driven scheduler. This preserves editable UI values,
-    /// cascading updates, Binding inspection, and list callbacks.
-    /// Computations and two-way links require the explicit graph runtime instead.
-    pub fn into_bindings(self) -> Result<Vec<crate::binding::Binding>> {
-        ensure!(
-            self.links.is_empty() && self.nodes.iter().all(|node| node.source_path.is_some()),
-            "Only direct path graphs support compatibility scheduling; use BindingGraphPlugin for computations or two-way links"
-        );
-        self.sinks
-            .into_iter()
-            .map(|sink| {
-                let source = self.nodes[sink.input].source_path.as_ref().unwrap();
-                let target = sink.target_path;
-                Ok(crate::binding::Binding {
-                    source_entity: Some(source.entity),
-                    source_component_name: source.component.clone(),
-                    source_property_path: source.path.clone(),
-                    target_entity: Some(target.entity),
-                    target_component_name: target.component,
-                    target_property_path: target.path,
-                    entity_func: None,
-                })
-            })
-            .collect()
-    }
-}
 
-/// Defer installation through the same FluxWorld command boundary as the
-/// original builders. `None` remains an inactive, inspectable Binding source.
+/// String-based builder conveniences use the same graph preparation and
+/// installation path as expression-based builders.
 #[cfg(feature = "bevy_std")]
 pub(crate) fn queue_builder_binding(
     commands: &mut Commands,
     source: Result<BindingPath>,
     target: Result<BindingPath>,
 ) {
-    use bevy::ecs::system::RunSystemOnce;
     commands.queue(move |world: &mut World| -> bevy::prelude::Result {
-        let mut graph = BindingGraph::new();
-        let source = source?;
-        let source_entity = source.entity;
-        let source = graph.source(source)?;
-        graph.bind(source, target?)?;
-        let mut edges = graph.into_bindings()?;
-        for edge in &mut edges {
-            edge.source_entity = Some(source_entity);
-        }
-        world.run_system_once(move |mut bindings: crate::binding::FluxWorld| {
-            for edge in &edges {
-                bindings.add_binding(edge.clone());
-            }
-        })?;
+        let target = target?;
+        let owner = target.entity;
+        source.into_binding_expr().prepare(target)?.install(world, owner)?;
         Ok(())
     });
-}
-
-#[cfg(feature = "bevy_std")]
-pub(crate) fn queue_checked_builder_binding(
-    commands: &mut Commands,
-    source: BindingPath,
-    target: BindingPath,
-) {
-    queue_builder_binding(
-        commands,
-        Ok(source),
-        Ok(target),
-    );
 }
 
 /// Builder input: accept both an already checked location and a macro's Result.
 /// Builders report invalid paths through Bevy's command error handler.
 pub trait IntoBindingPath {
+    type Value;
     fn into_binding_path(self) -> Result<BindingPath>;
 }
 impl IntoBindingPath for BindingPath {
+    type Value = Untyped;
     fn into_binding_path(self) -> Result<BindingPath> {
         Ok(self)
     }
 }
 impl IntoBindingPath for Result<BindingPath> {
+    type Value = Untyped;
     fn into_binding_path(self) -> Result<BindingPath> {
         self
     }
@@ -151,5 +101,69 @@ impl IntoComponentBindingPath for ComponentBindingPath {
 impl IntoComponentBindingPath for Result<ComponentBindingPath> {
     fn into_component_binding_path(self) -> Result<ComponentBindingPath> {
         self
+    }
+}
+
+/// Marker for string-based paths and expressions whose value type is unknown.
+pub enum Untyped {}
+
+/// A reflected location carrying the Rust type of its final value.
+/// Obtain one with `path!`; call `erase()` for runtime-checked APIs.
+/// Explicit `as Type` shapes are assertions about dynamic data, checked at runtime.
+pub struct TypedBindingPath<T: ?Sized> {
+    path: BindingPath,
+    marker: std::marker::PhantomData<fn(&T) -> &T>,
+}
+
+impl<T: ?Sized> TypedBindingPath<T> {
+    /// Macro support. The projection is type-checked, never executed.
+    /// Like a string-based path constructor, callers constructing this manually
+    /// must ensure the supplied path matches the projection.
+    #[doc(hidden)]
+    pub fn from_projection<Root>(path: BindingPath, _: impl FnOnce(&Root) -> &T) -> Self {
+        Self { path, marker: std::marker::PhantomData }
+    }
+
+    pub fn erase(self) -> BindingPath { self.path }
+}
+impl<T: ?Sized> Clone for TypedBindingPath<T> {
+    fn clone(&self) -> Self { Self { path: self.path.clone(), marker: std::marker::PhantomData } }
+}
+impl<T: ?Sized> std::fmt::Debug for TypedBindingPath<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.path.fmt(f) }
+}
+impl<T: ?Sized> PartialEq for TypedBindingPath<T> {
+    fn eq(&self, other: &Self) -> bool { self.path == other.path }
+}
+impl<T: ?Sized> Eq for TypedBindingPath<T> {}
+impl<T: ?Sized> std::hash::Hash for TypedBindingPath<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) { std::hash::Hash::hash(&self.path, state); }
+}
+impl<T: ?Sized> PartialEq<BindingPath> for TypedBindingPath<T> {
+    fn eq(&self, other: &BindingPath) -> bool { self.path == *other }
+}
+impl<T: ?Sized> PartialEq<TypedBindingPath<T>> for BindingPath {
+    fn eq(&self, other: &TypedBindingPath<T>) -> bool { *self == other.path }
+}
+impl<T> IntoBindingPath for TypedBindingPath<T> {
+    type Value = T;
+    fn into_binding_path(self) -> Result<BindingPath> { Ok(self.erase()) }
+}
+impl<T> IntoBindingPath for Result<TypedBindingPath<T>> {
+    type Value = T;
+    fn into_binding_path(self) -> Result<BindingPath> { self.map(TypedBindingPath::erase) }
+}
+impl<T: ?Sized> From<TypedBindingPath<T>> for BindingPath {
+    fn from(path: TypedBindingPath<T>) -> Self { path.erase() }
+}
+
+impl BindingPath {
+    pub(crate) fn write_value(self, world: &mut World, value: Box<dyn PartialReflect>) -> Result<()> {
+        let mut writer = self.writer();
+        writer.initialize(world);
+        writer.check_change_tick(world.read_change_tick());
+        writer.run(Some(value), world)?;
+        writer.apply_deferred(world);
+        Ok(())
     }
 }

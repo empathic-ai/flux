@@ -1,6 +1,7 @@
 #![allow(warnings)]
 #![feature(let_chains)]
 #![feature(trait_alias)]
+#![feature(unboxed_closures, tuple_trait)]
 #![feature(string_remove_matches)]
 #![feature(must_not_suspend)]
 #![warn(must_not_suspend)]

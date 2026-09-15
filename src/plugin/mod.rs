@@ -1,6 +1,9 @@
 mod database;
 pub use database::*;
 
+mod commands;
+pub use commands::*;
+
 #[cfg(feature = "futures")]
 use bevy_async_ecs::{AsyncEcsPlugin, AsyncWorld};
 #[cfg(feature = "tokio")]
@@ -76,15 +79,22 @@ impl Plugin for FluxPlugin {
     fn build(&self, app: &mut App) {
 
         if !app.is_plugin_added::<EditBindingPlugin>() { app.add_plugins(EditBindingPlugin); }
+        if !app.is_plugin_added::<BindingGraphPlugin>() { app.add_plugins(BindingGraphPlugin); }
+
+        app.add_reactive::<ReactiveMapView>()
+            .add_reactive::<ReactiveMapKey>();
 
         app.insert_state(DbState::Connecting)
             .insert_resource(self.config.clone())
-            .insert_resource(BindingsConfig::default())
             .add_event::<NetworkEvent>()
             .add_event::<PeerEvent>()
             .add_systems(
                 Update,
-                (relay_network_events, process_reactive_lists).run_if(in_state(DbState::Connected)),
+                relay_network_events.run_if(in_state(DbState::Connected)),
+            )
+            .add_systems(
+                PostUpdate,
+                (process_reactive_lists, process_reactive_maps).after(BindingGraphSet).run_if(in_state(DbState::Connected)),
             );
 
         #[cfg(feature = "subsecond")]

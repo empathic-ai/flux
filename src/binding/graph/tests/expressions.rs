@@ -14,7 +14,7 @@ fn nested_expressions_accept_paths_results_and_named_functions() {
     let expr = process(
         (
             at(source, "number"),
-            binding_path!(source, Model.number),
+            path!(source, Model.number),
             process((), || Ok(5_i32)),
             Ok(process((at(source, "number"),), |n: i32| Ok(n * 2))),
         ),
@@ -66,7 +66,7 @@ fn expression_systems_preserve_local_state_and_refresh_resources() {
     let source = app.world_mut().spawn_empty().id();
     let target = model(&mut app, 99, vec![]);
     let expr = process_system(
-        binding_path!(source, Model.number),
+        path!(source, Model.number),
         |In((n,)): In<(i32,)>, threshold: Res<Threshold>, mut calls: Local<i32>| {
             *calls += 1;
             Ok(n + threshold.0 + *calls)

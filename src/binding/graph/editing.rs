@@ -290,7 +290,7 @@ fn update_edit_bindings(world: &mut World) {
 pub fn install_edit_binding<A: EditCollection>(
     world: &mut World,
     owner: Entity,
-    path: BindingPath,
+    path: impl IntoBindingPath,
     adapter: A,
     policy: EditPolicy,
     render: EditRenderer,
@@ -310,6 +310,7 @@ pub fn install_edit_binding<A: EditCollection>(
             .is_none(),
         "Legacy and editable renderers cannot share an owner"
     );
+    let path = path.into_binding_path()?;
     let mut reader = path.reader();
     let mut route_reader = path.route_reader();
     let mut writer = path.writer();

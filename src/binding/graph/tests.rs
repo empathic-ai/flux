@@ -2,6 +2,11 @@ use super::*;
 use bevy_trait_query::RegisterExt;
 mod processing;
 #[cfg(feature = "bevy_std")]
+mod maps;
+mod unified;
+#[cfg(feature = "bevy_std")]
+mod ticks;
+#[cfg(feature = "bevy_std")]
 mod expressions;
 
 #[derive(Component, Reflect, Clone, PartialEq)]
@@ -446,7 +451,7 @@ fn two_way_retargeting_starts_a_new_source_authoritative_link() {
 
 #[test]
 fn checked_macros_cover_fields_options_indices_shapes_and_entity_jumps() {
-    use crate::prelude::{binding_path, component_path, property_path};
+    use crate::prelude::{path, component_path, property_path};
     #[derive(Component, Reflect)]
     struct Nested {
         inner: Option<Model>,
@@ -454,7 +459,7 @@ fn checked_macros_cover_fields_options_indices_shapes_and_entity_jumps() {
     }
     let entity = Entity::PLACEHOLDER;
     assert_eq!(
-        binding_path!(entity, Model.number).unwrap(),
+        path!(entity, Model.number).unwrap(),
         at(entity, "number")
     );
     assert_eq!(
@@ -476,7 +481,7 @@ fn checked_macros_cover_fields_options_indices_shapes_and_entity_jumps() {
         "value.Model.number"
     );
     let mut calls = 0;
-    binding_path!(
+    path!(
         {
             calls += 1;
             entity
@@ -538,32 +543,12 @@ fn pipeline_can_resume_paths_jump_and_extend_through_then() {
     assert_ok(&app);
 }
 
-#[test]
-fn compatibility_compilation_preserves_endpoints_and_rejects_computations() {
-    let mut graph = BindingGraph::new();
-    let path = at(Entity::PLACEHOLDER, "number");
-    let node = graph.source(path.clone()).unwrap();
-    graph.bind(node, path).unwrap();
-    let bindings = graph.into_bindings().unwrap();
-    assert_eq!(bindings.len(), 1);
-    assert_eq!(bindings[0].source_component_name, "Model");
-    assert_eq!(bindings[0].source_property_path.as_deref(), Some("number"));
-    assert_eq!(bindings[0].target_entity, Some(Entity::PLACEHOLDER));
-    let mut graph = BindingGraph::new();
-    graph.constant(1_i32).unwrap();
-    assert!(graph.into_bindings().is_err());
-}
-
 #[cfg(feature = "bevy_std")]
 #[test]
 fn builders_preserve_pending_sources_cascades_and_local_edits() {
     use crate::prelude::*;
     use bevy::ecs::system::RunSystemOnce;
     let mut app = app();
-    app.insert_resource(BindingsConfig::default());
-    app.add_systems(Update, |mut flux: FluxWorld| {
-        flux.update().unwrap();
-    });
     let source = model(&mut app, 7, vec![]);
     let editor = model(&mut app, 0, vec![]);
     let downstream = model(&mut app, 0, vec![]);
@@ -577,7 +562,7 @@ fn builders_preserve_pending_sources_cascades_and_local_edits() {
                 "number",
             );
             commands.entity(downstream).builder().bind_from(
-                Ok(binding_path!(editor, Model.number).into_binding_expr()),
+                Ok(path!(editor, Model.number).into_binding_expr()),
                 component_path!(Model.number),
             );
         })
@@ -596,8 +581,9 @@ fn builders_preserve_pending_sources_cascades_and_local_edits() {
     assert_eq!(app.world().get::<Model>(downstream).unwrap().number, 99);
     let world = app.world_mut();
     assert!(
-        world.resource::<BindingGraphs>().graphs.is_empty(),
-        "simple builders use compatibility scheduling"
+        world.resource::<BindingGraphs>().graphs.iter().all(|owned| owned.graph.change_driven())
+            && world.resource::<BindingGraphs>().graphs.len() == 2,
+        "simple builders are change-driven graphs in the unified runtime"
     );
 }
 
@@ -617,20 +603,10 @@ fn list_builders_retain_row_callbacks_and_render_changed_snapshots() {
     #[derive(Component)]
     struct RowBuilt;
     let mut app = app();
-    app.insert_resource(BindingsConfig::default());
     app.register_component_as::<dyn Reactive, Rows>();
     app.register_component_as::<dyn Reactive, ReactiveListView>();
     app.register_component_as::<dyn Reactive, ReactiveView>();
-    app.add_systems(
-        Update,
-        (
-            |mut flux: FluxWorld| {
-                flux.update().unwrap();
-            },
-            process_reactive_lists,
-        )
-            .chain(),
-    );
+    app.add_systems(Update, process_reactive_lists);
     let source = app
         .world_mut()
         .spawn(Rows {
@@ -655,12 +631,12 @@ fn list_builders_retain_row_callbacks_and_render_changed_snapshots() {
     app.world_mut().run_system_once(move |mut commands: Commands| {
         let row = |In(entity): In<Entity>, mut commands: Commands| { commands.entity(entity).insert(RowBuilt); };
         commands.entity(legacy).builder().bind_list(source, "Rows", "items", row);
-        commands.entity(checked).builder().bind_list_from(binding_path!(source, Rows.items), row);
+        commands.entity(checked).builder().bind_list_from(path!(source, Rows.items), row);
         let mut graph = BindingGraph::new();
         let node = binding_node!(graph; source(source, Rows.items) => filter::<Model>(|row| row.number > 1)).unwrap();
         commands.entity(computed).builder().bind_list_node(graph, node, row).unwrap();
         commands.entity(expression).builder().bind_list_from(
-            process(binding_path!(source, Rows.items), |rows: Vec<Model>| {
+            process(path!(source, Rows.items), |rows: Vec<Model>| {
                 Ok(rows.into_iter().filter(|row| row.number > 1).collect::<Vec<_>>())
             }),
             row,
@@ -707,13 +683,9 @@ fn scalar_list_rows_are_readable_in_callbacks_and_refresh() {
     #[derive(Component)]
     struct RowValue(i32);
     let mut app = app();
-    app.insert_resource(BindingsConfig::default());
     app.register_component_as::<dyn Reactive, ReactiveListView>();
     app.register_component_as::<dyn Reactive, ReactiveView>();
-    app.add_systems(Update, (
-        |mut flux: FluxWorld| { flux.update().unwrap(); },
-        process_reactive_lists,
-    ).chain());
+    app.add_systems(Update, process_reactive_lists);
     let source = model(&mut app, 0, vec![3, 3, 7]);
     let owners = std::array::from_fn::<_, 3, _>(|_| app.world_mut().spawn_empty().id());
     app.world_mut().run_system_once(move |mut commands: Commands| {
@@ -723,10 +695,10 @@ fn scalar_list_rows_are_readable_in_callbacks_and_refresh() {
             commands.entity(entity).insert(RowValue(item));
             commands.entity(entity).insert(Model { number: 0, items: vec![], next: None });
             commands.entity(entity).builder().bind_from(
-                binding_path!(entity, ReactiveView.value), component_path!(Model.number));
+                path!(entity, ReactiveView.value), component_path!(Model.number));
         };
         commands.entity(owners[0]).builder().bind_list(source, "Model", "items", row);
-        commands.entity(owners[1]).builder().bind_list_from(binding_path!(source, Model.items), row);
+        commands.entity(owners[1]).builder().bind_list_from(path!(source, Model.items), row);
         let mut graph = BindingGraph::new();
         let node = graph.source(at(source, "items")).unwrap();
         commands.entity(owners[2]).builder().bind_list_node(graph, node, row).unwrap();
@@ -784,8 +756,8 @@ fn uuid_set_minus_map_keys_renders_scalar_rows() {
     let owner = app.world_mut().spawn_empty().id();
     app.world_mut().run_system_once(move |mut commands: Commands| {
         let mut graph = BindingGraph::new();
-        let available = graph.source(binding_path!(source, Networks.available).unwrap()).unwrap();
-        let configured = graph.source(binding_path!(source, Networks.configured).unwrap()).unwrap();
+        let available = graph.source(path!(source, Networks.available).unwrap()).unwrap();
+        let configured = graph.source(path!(source, Networks.configured).unwrap()).unwrap();
         let difference = graph.process((available, configured),
             |available: HashSet<Uuid>, configured: std::collections::HashMap<Uuid, String>| {
                 let mut ids: Vec<_> = available.into_iter().filter(|id| !configured.contains_key(id)).collect();
@@ -825,7 +797,7 @@ fn dynamic_view_paths_read_write_and_retarget_records() {
     let view = app.world_mut().spawn(ReactiveView { value: Dynamic::new(&first_id) }).id();
     let destination = model(&mut app, 0, vec![]);
     let mut graph = BindingGraph::new();
-    let source = graph.source(binding_path!(view, ReactiveView.value as Id -> Model.number).unwrap()).unwrap();
+    let source = graph.source(path!(view, ReactiveView.value as Id -> Model.number).unwrap()).unwrap();
     graph.bind(source, at(destination, "number")).unwrap();
     graph.install(app.world_mut(), view).unwrap();
     app.update();
@@ -836,7 +808,7 @@ fn dynamic_view_paths_read_write_and_retarget_records() {
 
     let mut graph = BindingGraph::new();
     let value = graph.constant(23_i32).unwrap();
-    graph.bind(value, binding_path!(view, ReactiveView.value as Id -> Model.number).unwrap()).unwrap();
+    graph.bind(value, path!(view, ReactiveView.value as Id -> Model.number).unwrap()).unwrap();
     graph.install(app.world_mut(), view).unwrap();
     app.update();
     assert_eq!(app.world().get::<Model>(first).unwrap().number, 7);
@@ -849,10 +821,12 @@ fn dynamic_view_paths_read_write_and_retarget_records() {
     });
     let mut graph = BindingGraph::new();
     let value = graph.constant(31_i32).unwrap();
-    graph.bind(value, binding_path!(view, ReactiveView.value as Model.number).unwrap()).unwrap();
+    graph.bind(value, path!(view, ReactiveView.value as Model.number).unwrap()).unwrap();
     graph.install(app.world_mut(), view).unwrap();
     app.update();
     let value = app.world().get::<ReactiveView>(view).unwrap();
     assert_eq!(Model::from_reflect(value.value.as_ref()).unwrap().number, 31);
     assert_ok(&app);
 }
+
+mod typed;

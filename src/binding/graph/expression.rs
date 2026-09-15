@@ -3,7 +3,35 @@ use super::*;
 
 /// A path or computation that can be attached to a builder or added to a graph.
 /// Expressions are intentionally not Clone: systems may own persistent state.
-pub struct BindingExpr(ExprKind);
+///
+/// Typed inputs must match the callback, even when nested or in a tuple:
+/// ```compile_fail
+/// use bevy::prelude::*;
+/// use flux::prelude::*;
+/// #[derive(Component, Reflect)]
+/// struct Model { number: i32 }
+/// let expression = process(path!(Entity::PLACEHOLDER, Model.number),
+///     |s: String| Ok(s));
+/// ```
+/// ```compile_fail
+/// use flux::prelude::*;
+/// let expression = process((process((), || Ok(42_i32)),), |s: String| Ok(s));
+/// ```
+/// ```compile_fail
+/// use bevy::prelude::*;
+/// use flux::prelude::*;
+/// #[derive(Component, Reflect)]
+/// struct Model { number: i32 }
+/// let expression = process_system(path!(Entity::PLACEHOLDER, Model.number),
+///     |In((s,)): In<(String,)>| Ok(s));
+/// ```
+pub struct BindingExpr<T = Untyped>(ExprKind, std::marker::PhantomData<fn(T) -> T>);
+
+impl<T> BindingExpr<T> {
+    fn new(kind: ExprKind) -> Self { Self(kind, std::marker::PhantomData) }
+    /// Explicitly discard compile-time value information for dynamic composition.
+    pub fn erase(self) -> BindingExpr { BindingExpr::new(self.0) }
+}
 
 enum ExprKind {
     Path(Result<BindingPath>),
@@ -12,24 +40,28 @@ enum ExprKind {
 
 /// Inputs accepted by builders and expression combinators.
 pub trait IntoBindingExpr {
-    fn into_binding_expr(self) -> BindingExpr;
+    type Value;
+    fn into_binding_expr(self) -> BindingExpr<Self::Value>;
 }
 
 impl<T: IntoBindingPath> IntoBindingExpr for T {
-    fn into_binding_expr(self) -> BindingExpr {
-        BindingExpr(ExprKind::Path(self.into_binding_path()))
+    type Value = T::Value;
+    fn into_binding_expr(self) -> BindingExpr<Self::Value> {
+        BindingExpr::new(ExprKind::Path(self.into_binding_path()))
     }
 }
-impl IntoBindingExpr for BindingExpr {
-    fn into_binding_expr(self) -> BindingExpr {
+impl<T> IntoBindingExpr for BindingExpr<T> {
+    type Value = T;
+    fn into_binding_expr(self) -> BindingExpr<T> {
         self
     }
 }
-impl IntoBindingExpr for Result<BindingExpr> {
-    fn into_binding_expr(self) -> BindingExpr {
+impl<T> IntoBindingExpr for Result<BindingExpr<T>> {
+    type Value = T;
+    fn into_binding_expr(self) -> BindingExpr<T> {
         match self {
             Ok(expression) => expression,
-            Err(error) => BindingExpr(ExprKind::Path(Err(error))),
+            Err(error) => BindingExpr::new(ExprKind::Path(Err(error))),
         }
     }
 }
@@ -54,7 +86,7 @@ macro_rules! single_input {
         impl<T: FromReflect> BindingExprInputs<(T,)> for $input {
             type Nodes = BindingNode;
             fn expressions(self) -> Vec<BindingExpr> {
-                vec![self.into_binding_expr()]
+                vec![self.into_binding_expr().erase()]
             }
             fn nodes(nodes: Vec<BindingNode>) -> Self::Nodes {
                 nodes[0]
@@ -64,8 +96,27 @@ macro_rules! single_input {
 }
 single_input!(BindingPath);
 single_input!(Result<BindingPath>);
-single_input!(BindingExpr);
-single_input!(Result<BindingExpr>);
+// Typed inputs accept only their exact Rust value type. Erased inputs preserve
+// the legacy reflection-checked API.
+#[doc(hidden)]
+pub trait BindingValueType<Arg> {}
+impl<T: FromReflect> BindingValueType<T> for T {}
+impl<T: FromReflect> BindingValueType<T> for Untyped {}
+
+macro_rules! typed_input {
+    ($input:ty) => {
+        impl<V> sealed::Inputs for $input {}
+        impl<V: BindingValueType<T>, T: FromReflect> BindingExprInputs<(T,)> for $input {
+            type Nodes = BindingNode;
+            fn expressions(self) -> Vec<BindingExpr> { vec![self.into_binding_expr().erase()] }
+            fn nodes(nodes: Vec<BindingNode>) -> Self::Nodes { nodes[0] }
+        }
+    };
+}
+typed_input!(TypedBindingPath<V>);
+typed_input!(Result<TypedBindingPath<V>>);
+typed_input!(BindingExpr<V>);
+typed_input!(Result<BindingExpr<V>>);
 
 macro_rules! expression_inputs {
     (@node $input:ident) => { BindingNode };
@@ -73,10 +124,11 @@ macro_rules! expression_inputs {
         impl<$($input: IntoBindingExpr,)*> sealed::Inputs for ($($input,)*) {}
         impl<$($input: IntoBindingExpr, $arg: FromReflect,)*>
             BindingExprInputs<($($arg,)*)> for ($($input,)*)
+        where $($input::Value: BindingValueType<$arg>,)*
         {
             type Nodes = ($(expression_inputs!(@node $input),)*);
             fn expressions(self) -> Vec<BindingExpr> {
-                vec![$(self.$index.into_binding_expr(),)*]
+                vec![$(self.$index.into_binding_expr().erase(),)*]
             }
             #[allow(unused_variables)]
             fn nodes(nodes: Vec<BindingNode>) -> Self::Nodes { ($(nodes[$index],)*) }
@@ -107,15 +159,17 @@ fn compile_inputs(graph: &mut BindingGraph, inputs: Vec<BindingExpr>) -> Result<
 
 /// Build a lazy typed computation. Accepts paths (including macro Results) and
 /// nested expressions; the callback returns anyhow::Result<Output>.
-pub fn process<Inputs, Args, Output, Func>(inputs: Inputs, function: Func) -> BindingExpr
+pub fn process<Inputs, Args, Output, Func>(inputs: Inputs, function: Func) -> BindingExpr<Output>
 where
     Inputs: BindingExprInputs<Args>,
-    Args: 'static,
+    Args: std::marker::Tuple + 'static,
     Output: PartialReflect,
-    Func: ProcessFn<Args, Output>,
+    // Rust uses a direct Fn bound to infer closure parameters before checking
+    // their bodies; the custom ProcessFn adapter alone does not provide it.
+    Func: Fn<Args, Output = Result<Output>> + ProcessFn<Args, Output>,
 {
     let inputs = inputs.expressions();
-    BindingExpr(ExprKind::Computed(Box::new(move |graph| {
+    BindingExpr::new(ExprKind::Computed(Box::new(move |graph| {
         let nodes = Inputs::nodes(compile_inputs(graph, inputs)?);
         graph.process(nodes, function)
     })))
@@ -123,7 +177,7 @@ where
 
 /// Lazy typed Bevy system computation. Uses In<(A, B, ...)> and read-only
 /// system parameters, with the same validation and state as graph.process_system.
-pub fn process_system<Inputs, Args, Output, S, Marker>(inputs: Inputs, system: S) -> BindingExpr
+pub fn process_system<Inputs, Args, Output, S, Marker>(inputs: Inputs, system: S) -> BindingExpr<Output>
 where
     Inputs: BindingExprInputs<Args>,
     Args: 'static,
@@ -133,7 +187,7 @@ where
 {
     let inputs = inputs.expressions();
     let system = IntoSystem::into_system(system);
-    BindingExpr(ExprKind::Computed(Box::new(move |graph| {
+    BindingExpr::new(ExprKind::Computed(Box::new(move |graph| {
         let nodes = Inputs::nodes(compile_inputs(graph, inputs)?);
         graph.process_system(nodes, system)
     })))
@@ -155,36 +209,18 @@ impl BindingGraph {
     }
 }
 
-/// Prepared before any builder commands are queued, so try_ methods fail cleanly.
 #[cfg(feature = "bevy_std")]
-pub(crate) enum PreparedBinding {
-    Direct(BindingPath, BindingPath),
-    Graph(BindingGraph),
-}
-
-#[cfg(feature = "bevy_std")]
-impl BindingExpr {
-    pub(crate) fn prepare(self, target: BindingPath) -> Result<PreparedBinding> {
-        match self.0 {
-            ExprKind::Path(path) => Ok(PreparedBinding::Direct(path?, target)),
-            kind => {
-                let mut graph = BindingGraph::new();
-                let node = graph.add(BindingExpr(kind))?;
-                graph.bind(node, target)?;
-                Ok(PreparedBinding::Graph(graph))
-            }
-        }
-    }
-}
-
-#[cfg(feature = "bevy_std")]
-impl PreparedBinding {
-    pub(crate) fn queue(self, commands: &mut Commands, owner: Entity) {
-        match self {
-            Self::Direct(source, target) => queue_checked_builder_binding(commands, source, target),
-            Self::Graph(graph) => {
-                commands.bind_graph(owner, graph);
-            }
-        }
+impl<T> BindingExpr<T> {
+    /// Every attachment prepares a graph before any builder commands are queued.
+    pub(crate) fn prepare(self, target: impl IntoBindingPath) -> Result<BindingGraph> {
+        let policy = if matches!(&self.0, ExprKind::Path(_)) {
+            BindingWritePolicy::OnSourceChange
+        } else {
+            BindingWritePolicy::Maintain
+        };
+        let mut graph = BindingGraph::new();
+        let node = graph.add(self)?;
+        graph.bind_with_policy(node, target, policy)?;
+        Ok(graph)
     }
 }

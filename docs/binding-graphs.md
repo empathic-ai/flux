@@ -1,10 +1,10 @@
 # Composable ECS binding graphs
 
-Flux's `binding::graph` module provides an opt-in reactive dataflow runtime.
+Flux's `binding::graph` module provides the shared reactive dataflow runtime.
 A path is a source or projection in the graph, rather than the entire binding.
 Multiple sources can feed a function, one result can feed multiple functions,
 and a function result can be followed by another path (including an `Id` jump).
-Existing `Binding`, `FluxWorld`, and entity builders remain available.
+Every binding builder creates a graph; there is no descriptor-based runtime.
 
 ## Architectural basis
 
@@ -46,18 +46,71 @@ read-only UI or protect a locally edited destination.
 
 ## Checked paths and builder integration
 
+### Typed values and one-shot writes
+
+`path!` preserves the final value type through fields, literal indices,
+Option traversal, and entity jumps. `IntoBindingPath::Value` and
+`IntoBindingExpr::Value` expose that type to generic APIs. Path Results retain it,
+so `?` is optional at a builder or command call.
+
+```rust,ignore
+// Model.number: i32
+let path: TypedBindingPath<i32> = path!(entity, Model.number)?;
+commands.set_property(path, 42);
+commands.set_property(path!(entity, Model.number), 43);
+// Compile error: the source carries i32, not String.
+// commands.set_property(path!(entity, Model.number), "wrong".to_owned());
+
+let label: BindingExpr<String> = process(
+    path!(entity, Model.number), |number: i32| Ok(number.to_string()),
+);
+```
+
+Import `flux::prelude::*` for `FluxCommandsExt`. Writes run once when Bevy applies
+Commands, using the existing reflected writer and current entity/Id mappings.
+The component must be registered as `Reactive`, and `DBConfig` must be available,
+just as for other Flux bindings. Missing records, None traversal, invalid indices,
+and incompatible dynamic data remain runtime errors, routed through Bevy’s command
+error handler. The command does not install a persistent binding.
+
+`process` and `process_system` return `BindingExpr<Output>` and require typed
+inputs to match callback arguments, including nested expressions and tuples.
+
+For `process`, typed inputs infer positional closure parameter types, so
+`|available, configured|` needs no annotations. The direct `Fn` bound uses
+nightly's `unboxed_closures` and `tuple_trait` features alongside Flux's existing
+nightly features; the custom `ProcessFn` adapter alone does not guide closure
+parameter inference. Erased inputs still need argument types supplied by the
+caller. A `collect()` result may separately need `Vec<_>` to choose its collection
+type, even when all closure parameters and element types are known.
+
+`set_property` accepts a typed **path**: computations have an output type but no
+unique writable source. Use the editing APIs for explicit inverse operations.
+
+Runtime APIs remain available: `BindingPath::new` creates a string-based path,
+and `path.erase()` / `expression.erase()` explicitly discard static information.
+Explicit old `BindingPath` or `BindingExpr` annotations may need `.erase()` or a
+typed annotation. Custom implementations of the conversion traits now declare
+`type Value`; use `Untyped` for dynamic inputs. Graph nodes, component-path builder
+targets, and graph sinks still use runtime reflection checks. Typed paths are
+accepted by graph construction and editing helpers and erased at that boundary.
+
+`as Type` remains a declaration of the expected dynamic shape, not proof of the
+stored value’s type. It determines the static leaf type while runtime reflection
+still validates the actual data.
+
 ### Inline binding expressions
 
 Use `process` for an ordinary function and `process_system` for a Bevy system.
-Both return a single-use `BindingExpr`, which owns a recipe rather than a node
+Both return a single-use `BindingExpr<Output>`, which owns a recipe rather than a node
 in an existing graph. Builders compile and install it automatically:
 
 ```rust,ignore
 parent.child().bind_list_from(
     process(
         (
-            binding_path!(device_view_entity, DeviceView.available_networks),
-            binding_path!(device_view_entity, ReactiveView.value as Id -> Device.wifi_configs),
+            path!(device_view_entity, DeviceView.available_networks),
+            path!(device_view_entity, ReactiveView.value as Id -> Device.wifi_configs),
         ),
         |available: HashSet<Uuid>, configured: HashMap<Uuid, WifiConfig>| {
             let mut ids: Vec<_> = available.into_iter()
@@ -70,15 +123,15 @@ parent.child().bind_list_from(
 );
 
 let adjusted = process_system(
-    binding_path!(source, Model.number),
+    path!(source, Model.number),
     |In((value,)): In<(i32,)>, settings: Res<Settings>| Ok(value + settings.offset),
 );
 let label = process(adjusted, |value: i32| Ok(value.to_string()));
 parent.child().bind_from(label, component_path!(TextLabel.text));
 ```
 
-Inputs may be paths, macro `Result<BindingPath>` values, expressions, or
-`Result<BindingExpr>` values. Pass one input directly, a heterogeneous tuple of
+Inputs may be paths, macro `Result<TypedBindingPath<T>>` values, expressions, or
+`Result<BindingExpr<T>>` values. Pass one input directly, a heterogeneous tuple of
 1–16 inputs, or `()` for no inputs. Callbacks use typed positional arguments
 and return `anyhow::Result<Output>`; systems use `In<(A, B, ...)>`.
 Missing values, conversion failures, ECS dependency validation, and read-only
@@ -98,11 +151,10 @@ reuse a returned node within its graph to share a computation and its system sta
 `bind_node(graph, node, target)` and `bind_list_node(graph, node, render)` remain
 available unchanged.
 
-The input API is unified, but scheduling is preserved: direct paths still use
-the change-driven compatibility scheduler, while computations require
-`BindingGraphPlugin` and evaluate in PostUpdate. Wrapping a path in an identity
-`process` deliberately selects computed scheduling; it is not equivalent for
-locally editable destinations.
+All bindings use `BindingGraphPlugin` and evaluate in PostUpdate. Direct paths
+use source-change delivery; computations maintain their calculated result.
+Wrapping a path in an identity `process` deliberately selects maintained delivery;
+it is not equivalent for locally editable destinations.
 
 The macros are implemented in `flux-derive` and re-exported from
 `flux::prelude::*`. They check Rust types and fields without constructing or
@@ -110,13 +162,14 @@ reading any ECS values:
 
 ```rust,ignore
 graph.two_way(
-    binding_path!(source, Model.number)?,
-    binding_path!(target, Model.number)?,
+    path!(source, Model.number)?,
+    path!(target, Model.number)?,
     BindingConflict::Reject,
 );
 ```
 
-`binding_path!(entity, Component.field)` returns `BindingResult<BindingPath>`.
+`path!(entity, Component.field)` returns `BindingResult<TypedBindingPath<T>>`,
+where `T` is the final field’s Rust type.
 `component_path!(Component.field)` returns `BindingResult<ComponentBindingPath>`
 without an entity, for builder destinations. `property_path!(Type.field)` returns
 the property string alone and can still be used with the older string APIs.
@@ -128,11 +181,11 @@ ordinary UI methods returning `&mut Self` need neither `?` nor `unwrap()`:
 
 ```rust,ignore
 parent.child().bind_from(
-    binding_path!(wifi_config_view_entity, WifiConfigView.is_editing),
+    path!(wifi_config_view_entity, WifiConfigView.is_editing),
     component_path!(Control.is_visible),
 );
 parent.child().bind_list_from(
-    binding_path!(app_entity, AppView.devices),
+    path!(app_entity, AppView.devices),
     |In(entity), mut commands: Commands| {
         commands.entity(entity).builder().reactive_view(Id::nil());
     },
@@ -143,28 +196,33 @@ Path errors from these builders use Bevy's deferred command error handler.
 For fallible application setup, use the `try_bind_from` and
 `try_bind_list_from` methods. The original signatures of `bind_component_property`,
 `bind_component`, `bind_component_to`, `bind_self_property`, and `bind_list`
-remain available; they now construct direct graphs and lower them using
-`BindingGraph::into_bindings()`.
+remain available as graph-building convenience methods.
 
-**Compatibility scheduling is deliberate.** A graph containing only direct
-path sources and sinks compiles into the existing `Binding` components and
-`FluxWorld` update scheduler. It does not install a polling graph. This preserves
-source-change scheduling, cascades, pending `None` source entities, binding
-inspection/retargeting, and the deferred command boundary. In particular, a
-text-field edit is not overwritten merely because another frame elapsed.
-`into_bindings()` rejects operators and two-way links instead of silently
-changing their semantics. No new plugin is needed for these simple builders.
+**One representation, one runtime.** Every builder prepares and installs a
+`BindingGraph`. Direct path sinks use `BindingWritePolicy::OnSourceChange`.
+An explicit `graph.bind(...)` or expression
+uses `Maintain`. The former preserves local edits until the source changes;
+the latter maintains the calculated output. Explicit graphs may opt into
+source-change delivery with `bind_with_policy` on a direct source node.
+There is no `PreparedBinding` enum, `Binding` component, `BindingsConfig`,
+`into_bindings()`, or `FluxWorld::update()` compatibility layer.
+Inspect installed graphs with `BindingGraphs::iter()` and their actual source
+nodes with `BindingGraph::sources()`. Create a disconnected input with
+`graph.pending_source()`, then attach, retarget, or suspend it using
+`BindingGraphs::set_source(node, Some(path))` or `set_source(node, None)`.
+Retargeting keeps the graph and its computation state intact. Before installation,
+use `graph.set_source(...)` directly. The deferred command boundary is unchanged.
 
 The Devices and Wi-Fi views in `crates/empathic/src/core/ui/builder.rs` now use
 the checked methods. Dynamic values need explicit shape annotations:
 
 ```rust,ignore
 // value contains an Id; navigate to that record's Device component.
-binding_path!(device_view_entity,
+path!(device_view_entity,
     ReactiveView.value as Id -> Device.wifi_configs)
 
 // value contains the Wi-Fi configuration itself; no entity jump here.
-binding_path!(wifi_config_view_entity,
+path!(wifi_config_view_entity,
     ReactiveView.value as WifiConfig.password)
 ```
 
@@ -209,7 +267,7 @@ stage fails. Nodes already added are not automatically rolled back.
 List rows expose every item directly in `ReactiveView.value`, an owned `Dynamic`
 reflected value. Struct field paths remain unchanged. Read scalar items with
 `Uuid::from_reflect(view.value.as_ref())`, or bind from
-`binding_path!(row, ReactiveView.value)`. This applies to `bind_list`,
+`path!(row, ReactiveView.value)`. This applies to `bind_list`,
 `bind_list_from`, and `bind_list_node`. Row callbacks receive the populated
 `ReactiveView` for every item, including duplicate values.
 
@@ -229,7 +287,8 @@ does not replace list rendering or change the Wi-Fi Save/BLE actions.
 
 ## Usage
 
-Add `BindingGraphPlugin` once. It initializes `BindingGraphs` and evaluates graphs
+Standalone applications add `BindingGraphPlugin` once; `FluxPlugin` includes it
+automatically. It initializes `BindingGraphs` and evaluates graphs
 in `PostUpdate`, under `BindingGraphSet`. Install a graph with
 `graph.install(world, owner)?` or `commands.bind_graph(owner, graph)`.
 The owner must exist; despawning it releases its graphs on the next evaluation.
@@ -385,10 +444,11 @@ unbounded fixed-point loop.
   a compound value before returning a type mismatch. Use compatible destination
   types and separate edit commands for transactions involving multiple records.
 - Each writable field should have a single owner. Do not simultaneously target
-  it with a legacy binding, a graph sink, and a two-way link. Overlapping reflected
-  paths and cross-graph cycles are not analyzed; separate graphs run in install
-  order and can observe earlier graphs' writes. Connect dependent computations
-  within one graph when they need the same input snapshot.
+  it with a direct binding, a graph sink, and a two-way link. Direct-only graphs
+  settle before computations, and direct consumers of writes are queued again
+  within the same update. Computed graphs and two-way links run once, in install
+  order; they are not repeatedly executed to seek a fixed point. Connect dependent
+  computations within one graph when they need a shared snapshot.
 - `None` in `BindingValue` means unresolved/missing. It propagates through the
   supplied path/list/typed operations; a custom `map` can recover it. A missing
   source retains the target. `Some(Box::new(None::<T>))` is a real Option value,
@@ -398,16 +458,16 @@ unbounded fixed-point loop.
   Equal values do not retrigger list rebuilding. Types without reflected equality
   may be written each update; provide equality for frequently bound values.
 - Systems and local state are owned by the graph, not registered as independent
-  system entities. No global source indexes need to be cleaned after retargeting.
+  system entities. Dependency indexes and cached paths are maintained by the runtime.
   Bevy `Local` persists; closures must not hide side effects in it. Graphs cannot
   query their own `BindingGraphs` registry during evaluation because it is scoped
   out of the world while the runtime holds it.
 
-Explicitly order `BindingGraphSet` relative to UI consumers and legacy binding
-systems when adopting it in Empathic. For example, an application can configure
-`BindingGraphSet.before(process_bindings)` in `PostUpdate` so existing downstream
-bindings see the graph's writes. The existing list renderer runs in `Update`, so
-it normally sees these writes on the next frame unless deliberately rescheduled.
+Order PostUpdate consumers after `BindingGraphSet` to observe current deliveries.
+`FluxPlugin` schedules its list renderer after that set. Empathic no longer runs
+the old scheduler in PreUpdate, Update, and PostUpdate. Update-stage consumers
+observe the previous PostUpdate result; applications needing current results
+should order their consumer in PostUpdate after the set.
 This plugin does not require the database to be connected, but path operators
 need the `DBConfig` resource and registered reactive component types. Pure or
 ECS-only graphs can run without it. Missing system resources become diagnostics.
@@ -420,10 +480,23 @@ should use versioned operation names, stable node/port IDs, parameter schemas,
 and registered factories that compile into this runtime. Never serialize
 `SystemId`, `TypeId`, or process-local `Entity` values as cross-peer identities.
 
-An incremental evaluator can be added without changing operator meaning, but
-must track path reads, unresolved Id mappings, component additions/removals,
-resource dependencies, and dynamic query membership. It must replace obsolete
-dependencies after every execution. Bevy's component-access declarations describe
+Path reads are incremental: equal paths share cached snapshots. The cache checks
+the added/changed ticks of every traversed component and the exact record mappings
+it consulted, including unresolved mappings and missing components. Unchanged
+paths avoid reflected cloning/walking. A component tick means "possibly changed";
+field equality decides whether a source-change delivery is necessary. Route
+changes also trigger delivery, even if the new record contains an equal value.
+Explicit per-component generations invalidate caches for runtime writes, including
+multiple writes within one Bevy tick. Removed owners release their cached paths.
+No binding descriptor entities or legacy source/target indexes are allocated.
+
+Direct cascades use a dependency-indexed work queue, with each graph bounded to
+`max(64, 1024 / graph_count)` visits per update. Exhausting a graph's budget reports
+a diagnostic instead of hanging or starving unrelated graphs. Cycles with types that lack reflected equality
+may not be able to establish convergence.
+
+Arbitrary functions and ECS computations still run once per update. Bevy's
+component-access declarations describe
 permitted access, not the exact set of entities a function actually read. Until
 that tracking exists, skipping arbitrary ECS functions because their explicit
 inputs compare equal would make results stale.
@@ -431,7 +504,7 @@ inputs compare equal would make results stale.
 Async providers should publish loading/ready/error state into ECS resources or
 components; graph nodes read those snapshots. Provider requests and database
 mutations remain explicit actions in their owning crates. A serialized operation
-registry, incremental scheduling, keyed list rendering, and multi-record edit
+registry, incremental computation scheduling, keyed list rendering, and multi-record edit
 transactions are separate extensions, not guarantees of this implementation.
 
 ## Validation of the checked builder migration
@@ -439,10 +512,15 @@ transactions are separate extensions, not guarantees of this implementation.
 The binding tests cover generated strings for nested fields, Option access,
 indices, tuple fields, dynamic shapes and Id jumps; entity expressions evaluated
 once; pipeline filters, ECS parameters and custom composition; and direct graph
-compilation. Builder regression tests run the existing `FluxWorld` scheduler and
+compilation. Builder regression tests run the shared runtime and
 list renderer to check unsaved edits, cascading writes, inactive sources, row
 callbacks, filtered lists and shrinking lists. Rustdoc checks a valid external
 macro invocation and rejects a misspelled field and a non-Id entity jump.
+
+Unified-runtime tests also check idle path-walk counts, long reverse-registered
+cascades, once-per-update systems, field-level equality, missing resources and
+components, equal-valued record retargeting, graph-native inspection/retargeting, and bounded
+cycles without reflected equality.
 
 The focused command is:
 

@@ -163,6 +163,6 @@ impl BindingGraph {
             system,
             name.clone().into(),
         );
-        self.push(name, &inputs.nodes(), Box::new(adapter))
+        self.push(name, &inputs.nodes(), Reader::new(Box::new(adapter)))
     }
 }

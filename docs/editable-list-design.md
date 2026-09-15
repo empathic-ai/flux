@@ -62,7 +62,7 @@ Once `Device.wifi_configs` is `HashMap<uuid::Uuid, WifiConfig>`, the list call i
 
 ```rust,ignore
 builder.bind_editable_list_from(
-    binding_path!(device_view_entity, ReactiveView.value as Id -> Device.wifi_configs),
+    path!(device_view_entity, ReactiveView.value as Id -> Device.wifi_configs),
     MapEntries::<uuid::Uuid, WifiConfig>::default(),
     EditPolicy::Manual,
     |In(row), mut commands: Commands| {

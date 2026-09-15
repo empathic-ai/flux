@@ -440,6 +440,25 @@ pub fn process_reactive_lists(mut commands: Commands, reactive_lists: Query<(Ent
     }
 }
 
+/// Rebuild map rows from a snapshot, with both key and value available to renderers.
+#[cfg(feature = "bevy_std")]
+pub fn process_reactive_maps(mut commands: Commands, maps: Query<(Entity, &ReactiveMapView), Changed<ReactiveMapView>>) {
+    use bevy::reflect::Map;
+    for (entity, map) in &maps {
+        // A deserialized/unconfigured view has no renderer yet.
+        let Some(render) = map.create_entity_func.as_ref() else { continue };
+        commands.entity(entity).despawn_related::<Children>();
+        for (key, value) in map.value.iter() {
+            let child = commands.spawn((
+                ReactiveMapKey { value: Dynamic::new(key) },
+                ReactiveView { value: Dynamic::new(value) },
+            )).id();
+            commands.entity(entity).add_child(child);
+            render.call(&mut commands, child);
+        }
+    }
+}
+
 #[cfg(feature = "bevy_std")]
 pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &BWindow)>,
     mut responsive_element_query: Query<(Entity, &mut Control, Option<&WidthLessThan>, Option<&HideOnHeightLessThan>), Without<BWindow>>) {

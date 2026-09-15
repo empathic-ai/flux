@@ -1,5 +1,5 @@
 use super::*;
-use crate::prelude::binding_path;
+use crate::prelude::path;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -112,7 +112,7 @@ fn callback_errors_and_input_type_changes_recover() {
     let target = model(&mut app, 99, vec![]);
     let mut graph = BindingGraph::new();
     let input = graph
-        .source(binding_path!(source, ReactiveView.value).unwrap())
+        .source(path!(source, ReactiveView.value).unwrap())
         .unwrap();
     let result = graph
         .process(input, |n: i32| {

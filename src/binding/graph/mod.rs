@@ -1,13 +1,18 @@
 //! Composable, snapshot-based ECS dataflow. See `docs/binding-graphs.md`.
 mod process;
 mod expression;
+mod system;
+use system::GraphSystem;
+mod runtime;
+use runtime::{PathReads, Snapshot, snapshot_copy, snapshot_equal};
+pub use runtime::evaluate_binding_graphs;
 pub use expression::{BindingExpr, BindingExprInputs, IntoBindingExpr, process, process_system};
 pub use process::{ProcessFn, ProcessInputs};
 use std::collections::HashSet;
 
 use anyhow::{Result, anyhow, ensure};
 use bevy::{
-    ecs::system::{BoxedSystem, ReadOnlySystem},
+    ecs::system::{ReadOnlySystem, System},
     prelude::*,
     reflect::{DynamicList, PartialReflect, ReflectRef},
 };
@@ -24,8 +29,8 @@ pub type BindingResult<T> = anyhow::Result<T>;
 /// Missing is distinct from a reflected `Option::None`. Operators may recover it.
 pub type BindingValue = Option<Box<dyn PartialReflect>>;
 pub type BindingInputs = Vec<BindingValue>;
-type Reader = Box<dyn ReadOnlySystem<In = In<BindingInputs>, Out = Result<BindingValue>>>;
-type Writer = BoxedSystem<In<BindingValue>, Result<()>>;
+type Reader = GraphSystem<dyn ReadOnlySystem<In = In<BindingInputs>, Out = Result<BindingValue>>>;
+type Writer = GraphSystem<dyn System<In = In<BindingValue>, Out = Result<()>>>;
 
 fn copy_value(value: &BindingValue) -> BindingValue {
     value.as_ref().map(|value| value.clone_value())
@@ -48,6 +53,12 @@ pub struct BindingPath {
     parsed: OptionalParsedPath,
 }
 
+impl std::hash::Hash for BindingPath {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&(&self.entity, &self.component, &self.path), state);
+    }
+}
+
 impl BindingPath {
     pub fn new(entity: Entity, component: impl Into<String>, path: Option<&str>) -> Result<Self> {
         Ok(Self {
@@ -62,7 +73,7 @@ impl BindingPath {
     // Returns the value at the end of the path, or None if the path can't be fully resolved
     fn reader(&self) -> Reader {
         let location = self.clone();
-        Box::new(IntoSystem::into_system(
+        Reader::new(Box::new(IntoSystem::into_system(
             move |_: In<BindingInputs>,
                   query: Query<(Entity, All<&'static dyn Reactive>)>,
                   db: Res<DBConfig>| {
@@ -76,14 +87,14 @@ impl BindingPath {
                 };
                 walk(root, &location.parsed, &resolver)
             },
-        ))
+        )))
     }
 
     // Returns a collection of entity identifiers along the path
     // Used to detect if the binding path has changed
     fn route_reader(&self) -> Reader {
         let location = self.clone();
-        Box::new(IntoSystem::into_system(
+        Reader::new(Box::new(IntoSystem::into_system(
             move |_: In<BindingInputs>,
                   query: Query<(Entity, All<&'static dyn Reactive>)>,
                   db: Res<DBConfig>| {
@@ -107,12 +118,12 @@ impl BindingPath {
                     .is_none()
                     .then(|| Box::new(route) as Box<dyn PartialReflect>))
             },
-        ))
+        )))
     }
 
     fn writer(&self) -> Writer {
         let location = self.clone();
-        Box::new(IntoSystem::into_system(
+        Writer::new(Box::new(IntoSystem::into_system(
             move |In(value): In<BindingValue>, mut query: ReactivesQuery, db: Res<DBConfig>| {
                 let Some(value) = value else { return Ok(()) };
                 apply_value_at_target_path(
@@ -125,7 +136,7 @@ impl BindingPath {
                     &mut HashSet::new(),
                 )
             },
-        ))
+        )))
     }
 }
 
@@ -178,13 +189,21 @@ struct Node {
     source_path: Option<BindingPath>,
     name: String,
     inputs: Vec<usize>,
-    system: Reader,
+    system: Option<Reader>,
 }
 struct Sink {
     target_path: BindingPath,
     input: usize,
-    read: Reader,
     system: Writer,
+    policy: BindingWritePolicy,
+    baseline: Option<(u64, u64)>,
+}
+
+/// Whether a sink maintains a calculated result or delivers source changes only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BindingWritePolicy {
+    Maintain,
+    OnSourceChange,
 }
 
 /// A runtime graph, owned by an entity after installation. Drop/despawn cleans
@@ -242,7 +261,7 @@ impl BindingGraph {
             source_path: None,
             name,
             inputs,
-            system,
+            system: Some(system),
         });
         Ok(node)
     }
@@ -263,18 +282,54 @@ impl BindingGraph {
         self.push(
             name.into(),
             inputs,
-            Box::new(IntoSystem::into_system(system)),
+            Reader::new(Box::new(IntoSystem::into_system(system))),
         )
     }
 
-    pub fn source(&mut self, path: BindingPath) -> Result<BindingNode> {
-        let node = self.push(format!("{path:?}"), &[], path.reader())?;
-        self.nodes[node.index].source_path = Some(path);
+    pub fn source(&mut self, path: impl IntoBindingPath) -> Result<BindingNode> {
+        let path = path.into_binding_path()?;
+        if let Some(index) = self.nodes.iter().position(|node| node.source_path.as_ref() == Some(&path)) {
+            return Ok(BindingNode { graph: self.id, index });
+        }
+        let node = BindingNode { graph: self.id, index: self.nodes.len() };
+        self.nodes.push(Node {
+            name: format!("{path:?}"),
+            source_path: Some(path),
+            inputs: Vec::new(),
+            system: None,
+        });
         Ok(node)
     }
 
     pub fn constant<T: PartialReflect>(&mut self, value: T) -> Result<BindingNode> {
         self.map("constant", &[], move |_| Ok(Some(value.clone_value())))
+    }
+
+    /// An inactive source that can be connected later with set_source.
+    pub fn pending_source(&mut self) -> BindingNode {
+        let node = BindingNode { graph: self.id, index: self.nodes.len() };
+        self.nodes.push(Node {
+            source_path: None, system: None, inputs: Vec::new(), name: "pending source".into(),
+        });
+        node
+    }
+
+    /// Inspect the graph's actual source nodes, without descriptor entities.
+    pub fn sources(&self) -> impl Iterator<Item = (BindingNode, Option<&BindingPath>)> {
+        self.nodes.iter().enumerate().filter(|(_, node)| node.system.is_none())
+            .map(|(index, node)| (BindingNode { graph: self.id, index }, node.source_path.as_ref()))
+    }
+
+    /// Retarget or suspend a source node. Its dependents retain their system state.
+    pub fn set_source(&mut self, node: BindingNode, path: Option<BindingPath>) -> Result<()> {
+        let index = self.check_node(node)?;
+        ensure!(self.nodes[index].system.is_none(), "Only source nodes can be retargeted");
+        self.nodes[index].name = format!("source {path:?}");
+        self.nodes[index].source_path = path;
+        for sink in &mut self.sinks {
+            if sink.input == index { sink.baseline = None; }
+        }
+        Ok(())
     }
 
     /// Pure value operation. The closure can handle missing inputs explicitly.
@@ -359,13 +414,23 @@ impl BindingGraph {
 
     /// Applies after every computation completes. Missing values retain the target.
     /// The reflected writer suppresses equal writes, and retries missing targets.
-    pub fn bind(&mut self, input: BindingNode, target: BindingPath) -> Result<&mut Self> {
+    pub fn bind(&mut self, input: BindingNode, target: impl IntoBindingPath) -> Result<&mut Self> {
+        self.bind_with_policy(input, target, BindingWritePolicy::Maintain)
+    }
+
+    /// OnSourceChange preserves local destination edits until the source changes.
+    /// This policy requires a direct source node; computations maintain their result.
+    pub fn bind_with_policy(&mut self, input: BindingNode, target: impl IntoBindingPath, policy: BindingWritePolicy) -> Result<&mut Self> {
+        let target = target.into_binding_path()?;
         let input = self.check_node(input)?;
+        ensure!(policy == BindingWritePolicy::Maintain || self.nodes[input].system.is_none(),
+            "OnSourceChange requires a direct source node");
         self.sinks.push(Sink {
             target_path: target.clone(),
             input,
-            read: target.reader(),
             system: target.writer(),
+            policy,
+            baseline: None,
         });
         Ok(self)
     }
@@ -374,11 +439,11 @@ impl BindingGraph {
     /// command; they must never be reversed by guessing a source list/index.
     pub fn two_way(
         &mut self,
-        source: BindingPath,
-        target: BindingPath,
+        source: impl Into<BindingPath>,
+        target: impl Into<BindingPath>,
         conflict: BindingConflict,
     ) -> &mut Self {
-        self.links.push(TwoWayLink::new(source, target, conflict));
+        self.links.push(TwoWayLink::new(source.into(), target.into(), conflict));
         self
     }
 
@@ -386,13 +451,13 @@ impl BindingGraph {
     /// Callers must ensure round trips preserve values (or document normalization).
     pub fn two_way_with<T: FromReflect + PartialReflect, U: FromReflect + PartialReflect>(
         &mut self,
-        source: BindingPath,
-        target: BindingPath,
+        source: impl Into<BindingPath>,
+        target: impl Into<BindingPath>,
         conflict: BindingConflict,
         forward: impl Fn(T) -> Result<U> + Send + Sync + 'static,
         backward: impl Fn(U) -> Result<T> + Send + Sync + 'static,
     ) -> &mut Self {
-        let mut link = TwoWayLink::new(source, target, conflict);
+        let mut link = TwoWayLink::new(source.into(), target.into(), conflict);
         link.forward = Box::new(move |value| {
             let value =
                 T::from_reflect(value).ok_or_else(|| anyhow!("Invalid two-way source type"))?;
@@ -414,20 +479,20 @@ impl BindingGraph {
             "Binding graph owner is missing"
         );
         for node in &mut self.nodes {
-            node.system.initialize(world);
+            let Some(system) = node.system.as_mut() else { continue };
+            system.initialize(world);
             ensure!(
-                !node.system.has_deferred(),
+                !system.has_deferred(),
                 "{}: Binding computations cannot contain deferred writes (Commands)",
                 node.name
             );
             ensure!(
-                node.system.is_send(),
+                system.is_send(),
                 "{}: Binding computations must use Send resources",
                 node.name
             );
         }
         for sink in &mut self.sinks {
-            sink.read.initialize(world);
             sink.system.initialize(world);
         }
         for link in &mut self.links {
@@ -445,23 +510,64 @@ impl BindingGraph {
         Ok(())
     }
 
-    fn evaluate(&mut self, world: &mut World) -> Result<()> {
-        let mut values: Vec<BindingValue> = Vec::with_capacity(self.nodes.len());
+    fn evaluate(&mut self, world: &mut World, reads: &mut PathReads, changed: &mut HashSet<(Entity, String)>) -> Result<()> {
+        // Idle direct graphs need only dependency stamps, not value vectors,
+        // reflected clones, or initialized reader systems.
+        if self.change_driven() {
+            let mut idle = true;
+            for sink in &mut self.sinks {
+                let Some(path) = self.nodes[sink.input].source_path.as_ref() else {
+                    sink.baseline = None;
+                    continue;
+                };
+                let source = reads.read(path, world)?;
+                if source.value.is_none() {
+                    sink.baseline = None;
+                    continue;
+                }
+                let version = source.version;
+                let target = reads.read(&sink.target_path, world)?;
+                if target.value.is_none() {
+                    sink.baseline = None;
+                    continue;
+                }
+                if sink.baseline != Some((version, target.route_version)) {
+                    idle = false;
+                    break;
+                }
+            }
+            if idle { return Ok(()); }
+        }
+        let mut values: Vec<Snapshot> = Vec::with_capacity(self.nodes.len());
+        let mut versions = Vec::with_capacity(self.nodes.len());
         for node in &mut self.nodes {
-            node.system.check_change_tick(world.read_change_tick());
-            node.system
+            if let Some(path) = &node.source_path {
+                let snapshot = reads.read(path, world)?;
+                versions.push(snapshot.version);
+                values.push(snapshot.value.clone());
+                continue;
+            }
+            let Some(system) = node.system.as_mut() else {
+                versions.push(0);
+                values.push(None);
+                continue;
+            };
+            system.check_change_tick(world.read_change_tick());
+            system
                 .validate_param(world)
                 .map_err(|error| anyhow!("{}: {error}", node.name))?;
             let inputs = node
                 .inputs
                 .iter()
-                .map(|index| copy_value(&values[*index]))
+                .map(|index| snapshot_copy(&values[*index]))
                 .collect();
             values.push(
-                node.system
+                system
                     .run_readonly(inputs, world)
-                    .map_err(|error| anyhow!("{}: {error}", node.name))?,
+                    .map_err(|error| anyhow!("{}: {error}", node.name))?
+                    .map(std::sync::Arc::from),
             );
+            versions.push(0);
         }
         // Plan all link directions against the same pre-write world.
         let plans = self
@@ -470,22 +576,47 @@ impl BindingGraph {
             .map(|link| link.plan(world))
             .collect::<Result<Vec<_>>>()?;
         for sink in &mut self.sinks {
-            sink.read.check_change_tick(world.read_change_tick());
-            sink.read
-                .validate_param(world)
-                .map_err(|error| anyhow!("Binding destination: {error}"))?;
-            let current = sink.read.run_readonly(vec![], world)?;
-            if values[sink.input].is_none() || equal(&current, &values[sink.input]) == Some(true) {
+            let current = reads.read(&sink.target_path, world)?;
+            let baseline = (versions[sink.input], current.route_version);
+            if values[sink.input].is_none() {
+                sink.baseline = None;
                 continue;
             }
+            if sink.policy == BindingWritePolicy::OnSourceChange && sink.baseline == Some(baseline) {
+                continue;
+            }
+            // Missing destinations are retried without consuming a source change.
+            if current.value.is_none() {
+                sink.baseline = None;
+                continue;
+            }
+            if snapshot_equal(&current.value, &values[sink.input]) == Some(true) {
+                sink.baseline = Some(baseline);
+                continue;
+            }
+            let dependencies = current.dependencies.clone();
             sink.system.check_change_tick(world.read_change_tick());
             sink.system
                 .validate_param(world)
                 .map_err(|error| anyhow!("Binding destination: {error}"))?;
-            sink.system.run(copy_value(&values[sink.input]), world)?;
+            let result = sink.system.run(snapshot_copy(&values[sink.input]), world);
+            // A writer can traverse multiple components. Invalidate explicitly:
+            // multiple writes can share Bevy's tick within an exclusive system.
+            reads.invalidate(&dependencies);
+            changed.extend(dependencies.into_iter().map(|dependency| dependency.key));
+            result?;
+            sink.baseline = Some(baseline);
         }
         for (link, plan) in self.links.iter_mut().zip(plans) {
-            link.commit(plan, world)?;
+            let writes = matches!(&plan, LinkPlan::Source(_) | LinkPlan::Target(_));
+            let result = link.commit(plan, world);
+            // Two-way links retain their snapshot planning; invalidate caches
+            // conservatively because their writers may touch either endpoint.
+            if writes {
+                reads.invalidate_all();
+                changed.extend(reads.dependency_keys());
+            }
+            result?;
         }
         Ok(())
     }
@@ -615,9 +746,11 @@ impl TwoWayLink {
             LinkPlan::Missing => return Ok(()),
             LinkPlan::Keep => {}
             LinkPlan::Source(value) => {
+                self.write_target.check_change_tick(world.read_change_tick());
                 self.write_target.run(value, world)?;
             }
             LinkPlan::Target(value) => {
+                self.write_source.check_change_tick(world.read_change_tick());
                 self.write_source.run(value, world)?;
             }
         }
@@ -648,9 +781,22 @@ struct OwnedGraph {
 #[derive(Resource, Default)]
 pub struct BindingGraphs {
     graphs: Vec<OwnedGraph>,
+    runtime: Option<PathReads>,
 }
 
 impl BindingGraphs {
+    /// Inspect installed graphs and their owners.
+    pub fn iter(&self) -> impl Iterator<Item = (Entity, &BindingGraph)> {
+        self.graphs.iter().map(|owned| (owned.owner, &owned.graph))
+    }
+
+    /// Retarget an installed source directly. No descriptor or graph recompilation.
+    pub fn set_source(&mut self, node: BindingNode, path: Option<BindingPath>) -> Result<()> {
+        let owned = self.graphs.iter_mut().find(|owned| owned.graph.id == node.graph)
+            .ok_or_else(|| anyhow!("Binding graph is not installed"))?;
+        owned.graph.set_source(node, path)
+    }
+
     pub fn errors(&self) -> impl Iterator<Item = (Entity, &str)> {
         self.graphs
             .iter()
@@ -664,35 +810,14 @@ impl BindingGraphs {
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BindingGraphSet;
 
-/// Opt-in so existing apps can choose ordering relative to legacy bindings/UI.
-/// Computes once in PostUpdate. No fixpoint loop, implicit feedback, or DB I/O.
+/// One PostUpdate runtime for all bindings. Direct cascades use a bounded work
+/// queue; arbitrary computations and two-way links run once per update.
 pub struct BindingGraphPlugin;
 impl Plugin for BindingGraphPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BindingGraphs>()
             .add_systems(PostUpdate, evaluate_binding_graphs.in_set(BindingGraphSet));
     }
-}
-
-pub fn evaluate_binding_graphs(world: &mut World) {
-    world.resource_scope(|world, mut graphs: Mut<BindingGraphs>| {
-        graphs
-            .graphs
-            .retain(|graph| world.get_entity(graph.owner).is_ok());
-        for graph in &mut graphs.graphs {
-            let error = graph
-                .graph
-                .evaluate(world)
-                .err()
-                .map(|error| error.to_string());
-            if error != graph.error {
-                if let Some(error) = &error {
-                    tracing::warn!(owner = ?graph.owner, %error, "Binding graph failed");
-                }
-            }
-            graph.error = error;
-        }
-    });
 }
 
 #[cfg(test)]

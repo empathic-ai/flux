@@ -264,7 +264,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
     /// Bind a path or lazy expression to a property on this entity.
-    /// Paths retain change-driven timing; expressions use BindingGraphPlugin.
+    /// Both use BindingGraphPlugin: paths deliver changes, expressions maintain results.
     fn bind_from(&mut self, source: impl IntoBindingExpr, target: impl IntoComponentBindingPath) -> &mut Self {
         if let Err(error) = self.try_bind_from(source, target) {
             self.get_commands().commands().queue(move |_: &mut World| -> bevy::prelude::Result { Err(error.into()) });
@@ -276,8 +276,8 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     /// still use Bevy's command handler and graph diagnostics respectively.
     fn try_bind_from(&mut self, source: impl IntoBindingExpr, target: impl IntoComponentBindingPath) -> BindingResult<&mut Self> {
         let owner = self.id();
-        let binding = source.into_binding_expr().prepare(target.into_component_binding_path()?.at(owner))?;
-        binding.queue(&mut self.get_commands().commands(), owner);
+        let graph = source.into_binding_expr().prepare(target.into_component_binding_path()?.at(owner))?;
+        self.get_commands().commands().bind_graph(owner, graph);
         Ok(self)
     }
 
@@ -305,14 +305,58 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     where S: EntitySys<SM> {
         use bevy::reflect::List;
         let owner = self.id();
-        let binding = source.into_binding_expr().prepare(binding_path!(owner, ReactiveListView.value)?)?;
+        let graph = source.into_binding_expr().prepare(path!(owner, ReactiveListView.value)?)?;
         let create_entity_func = EntityFunc::new(&mut self.get_commands().commands(), create_entity_system);
         self.insert(ReactiveListView {
             value: Vec::<()>::new().to_dynamic_list(),
             create_entity_func: Some(create_entity_func),
         });
-        binding.queue(&mut self.get_commands().commands(), owner);
+        self.get_commands().commands().bind_graph(owner, graph);
         Ok(self)
+    }
+
+    /// Bind a map snapshot. Each callback receives a row with `ReactiveMapKey`
+    /// and `ReactiveView`, populated before the callback runs.
+    fn bind_map_from<S, SM>(&mut self, source: impl IntoBindingExpr, create_entity_system: S) -> &mut Self
+    where S: EntitySys<SM> {
+        if let Err(error) = self.try_bind_map_from(source, create_entity_system) {
+            self.get_commands().commands().queue(move |_: &mut World| -> bevy::prelude::Result { Err(error.into()) });
+        }
+        self
+    }
+
+    /// Invalid expressions do not insert a map or register its callback.
+    fn try_bind_map_from<S, SM>(&mut self, source: impl IntoBindingExpr, create_entity_system: S) -> BindingResult<&mut Self>
+    where S: EntitySys<SM> {
+        let owner = self.id();
+        let graph = source.into_binding_expr().prepare(path!(owner, ReactiveMapView.value)?)?;
+        let create_entity_func = EntityFunc::new(&mut self.get_commands().commands(), create_entity_system);
+        self.insert(ReactiveMapView {
+            value: bevy::reflect::DynamicMap::default(),
+            create_entity_func: Some(create_entity_func),
+        });
+        self.get_commands().commands().bind_graph(owner, graph);
+        Ok(self)
+    }
+
+    /// Bind an explicit computed map node.
+    fn bind_map_node<S, SM>(&mut self, mut graph: BindingGraph, node: BindingNode, create_entity_system: S) -> BindingResult<&mut Self>
+    where S: EntitySys<SM> {
+        let owner = self.id();
+        graph.bind(node, path!(owner, ReactiveMapView.value)?)?;
+        let create_entity_func = EntityFunc::new(&mut self.get_commands().commands(), create_entity_system);
+        self.insert(ReactiveMapView {
+            value: bevy::reflect::DynamicMap::default(),
+            create_entity_func: Some(create_entity_func),
+        });
+        self.get_commands().commands().bind_graph(owner, graph);
+        Ok(self)
+    }
+
+    /// String-path counterpart to `bind_map_from`, matching `bind_list`.
+    fn bind_map<S, SM>(&mut self, entity: Entity, component_name: &str, property_name: &str, create_entity_system: S) -> &mut Self
+    where S: EntitySys<SM> {
+        self.bind_map_from(BindingPath::new(entity, component_name, Some(property_name)), create_entity_system)
     }
 
     /// Collection editing with explicit identity and write policy. Requires EditBindingPlugin.
@@ -378,7 +422,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     where S: EntitySys<SM> {
         use bevy::reflect::List;
         let owner = self.id();
-        graph.bind(node, binding_path!(owner, ReactiveListView.value)?)?;
+        graph.bind(node, path!(owner, ReactiveListView.value)?)?;
         let create_entity_func = EntityFunc::new(&mut self.get_commands().commands(), create_entity_system);
         self.insert(ReactiveListView {
             value: Vec::<()>::new().to_dynamic_list(),

@@ -362,7 +362,7 @@ impl FluxRegisterExt for App {
 
     fn add_reactive<T: FluxRecord>(&mut self) -> &mut Self {
         self.register_component_as::<dyn Reactive, T>()
-            .add_systems(PreStartup, register_reactive_type::<T>)
+            .register_type::<T>()
     }
 }
 
@@ -394,10 +394,6 @@ fn on_add_component<T: Component<Mutability = Mutable> + Struct + Reflect + Part
     }); */
 }
 */
-
-fn register_reactive_type<T: FluxRecord>(mut config: ResMut<BindingsConfig>) {
-    config.type_registry.register::<T>();
-}
 
 #[cfg(feature = "bevy_std")]
 fn handle_db_events<T: FluxRecord>(

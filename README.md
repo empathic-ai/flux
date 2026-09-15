@@ -54,3 +54,8 @@ local configuration, VS Code controls, and platform-specific behavior.
 
 See [binding graphs](docs/binding-graphs.md) for typed multi-input functions,
 two-way editing, scheduling, examples, and architectural references.
+
+## Reactive collection views
+
+See [reactive views](docs/reactive-views.md) for list/map rendering, nested
+collections, row keys, and the role of `ReactiveView`.
