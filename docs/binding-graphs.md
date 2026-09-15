@@ -24,8 +24,8 @@ The design draws on several established systems, with different responsibilities
   inside user closures: computations must also honor this contract themselves.
 - [RxJS combineLatest](https://rxjs.dev/api/index/function/combineLatest)
   motivates combining the current values of several inputs. These graphs carry
-  state snapshots, not event streams. `concat` appends the current list contents;
-  `union_by` removes duplicates by an explicit key, retaining the first item.
+  state snapshots, not event streams. Typed `process` callbacks combine them
+  using ordinary application code.
 - [Angular computed signals](https://angular.dev/guide/signals)
   demonstrate derived state and dynamic dependency replacement. This runtime
   deliberately evaluates every node each update rather than claiming precise
@@ -128,8 +128,9 @@ let filtered = binding_node!(graph;
     => filter::<Id>(|id| *id != Id::nil())
 )?;
 // Arbitrary multi-input operators stay ordinary Rust calls.
-let combined = graph.union_by(&[filtered, other_devices], |value| {
-    Id::from_reflect(value).ok_or_else(|| anyhow::anyhow!("Expected Id"))
+let combined = graph.process((filtered, other_devices), |a: Vec<Id>, b: Vec<Id>| {
+    let mut seen = std::collections::HashSet::new();
+    Ok(a.into_iter().chain(b).filter(|id| seen.insert(*id)).collect::<Vec<_>>())
 })?;
 let selected_name = binding_node!(graph;
     node(selected_agent)
@@ -189,8 +190,9 @@ let local = graph.source(BindingPath::new(
 let remote = graph.source(BindingPath::new(
     remote_view, "AppView", Some("devices"),
 )?)?;
-let devices = graph.union_by(&[local, remote], |item| {
-    Id::from_reflect(item).ok_or_else(|| anyhow::anyhow!("Expected device Id"))
+let devices = graph.process((local, remote), |local: Vec<Id>, remote: Vec<Id>| {
+    let mut seen = std::collections::HashSet::new();
+    Ok(local.into_iter().chain(remote).filter(|id| seen.insert(*id)).collect::<Vec<_>>())
 })?;
 graph.bind(devices, BindingPath::new(
     list_entity, "ReactiveListView", Some("value"),
@@ -209,24 +211,50 @@ A function can read ordinary ECS components without requiring them to implement
 `Reactive`. `Reactive` registration is required only for reflected path access:
 
 ```rust,ignore
-let visible = graph.system("visible devices", &[devices],
-    |In(mut inputs): In<BindingInputs>,
+let visible = graph.process_system(devices,
+    |In((ids,)): In<(Vec<Id>,)>,
      devices: Query<(&DBRecord, &Device)>,
-     preferences: Res<DevicePreferences>| -> anyhow::Result<BindingValue> {
-        let Some(input) = inputs.remove(0) else { return Ok(None) };
-        let ids = Vec::<Id>::from_reflect(input.as_ref())
-            .ok_or_else(|| anyhow::anyhow!("Expected device Id list"))?;
+     preferences: Res<DevicePreferences>| -> anyhow::Result<Vec<Id>> {
         let ids: Vec<Id> = ids.into_iter().filter(|id| {
             devices.iter().any(|(record, device)| {
                 record.id == *id && preferences.matches(device)
             })
         }).collect();
-        Ok(Some(Box::new(ids)))
+        Ok(ids)
     },
 )?;
 ```
 
 `DevicePreferences` and its predicate above are illustrative application types.
+`process` accepts closures and named functions with typed positional arguments;
+`process_system` accepts a Bevy system with a typed input tuple and read-only
+`Query`/`Res` parameters. Both return `BindingResult<BindingNode>` at construction
+and expect callbacks returning `anyhow::Result<T>` where `T: PartialReflect`.
+The graph converts arguments through `FromReflect` and boxes the result.
+
+```rust,ignore
+let a = graph.process((), || Ok(10_i32))?;
+let b = graph.process(a, |a: i32| Ok(a + 1))?;
+let c = graph.process((a, b), |a: i32, b: i32| Ok(a + b))?;
+let d = graph.process_system((a, b),
+    |In((a, b)): In<(i32, i32)>| -> anyhow::Result<i32> { Ok(a * b) })?;
+```
+
+Use a single node, `()`, or a tuple of one through sixteen nodes. System inputs
+always use tuples (`In<(T,)>` for one node, `In<()>` for zero). Closures use one
+argument per node. If any input is unavailable, the callback is skipped and
+the output is unavailable; an actual reflected `Option::None` is still a value.
+Conversion errors identify the argument index and expected Rust type. Callback
+errors become graph diagnostics and prevent the evaluation's sink writes.
+System parameter validation still runs on every evaluation, even when an input
+is missing. Resource changes and entity removal continue to refresh results.
+
+Set union, intersection, difference, and concatenation are application functions
+inside `process`; there are no dedicated graph combinators for them. `map` and
+`system` remain available for input counts chosen at runtime, custom handling of
+missing values, and untyped reflected data. Computations must not perform I/O
+or world writes; system deferred writes are rejected during installation.
+
 For value-only operations, `map_value::<T, U>` converts through `FromReflect`
 and reports incompatible inputs. `filter::<T>` preserves list order. `map` and
 `system` accept any number of graph inputs and are the common extension points

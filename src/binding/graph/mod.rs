@@ -1,4 +1,8 @@
 //! Composable, snapshot-based ECS dataflow. See `docs/binding-graphs.md`.
+mod process;
+mod expression;
+pub use expression::{BindingExpr, BindingExprInputs, IntoBindingExpr, process, process_system};
+pub use process::{ProcessFn, ProcessInputs};
 use std::collections::HashSet;
 
 use anyhow::{Result, anyhow, ensure};
@@ -352,115 +356,6 @@ impl BindingGraph {
         )
     }
 
-    /// Concatenates current list snapshots in input order, retaining duplicates.
-    /// Missing inputs propagate; use a map to substitute an empty list if desired.
-    pub fn concat(&mut self, inputs: &[BindingNode]) -> Result<BindingNode> {
-        self.map("concat", inputs, |values| {
-            let mut output = DynamicList::default();
-            for value in values {
-                let Some(value) = value else { return Ok(None) };
-                let ReflectRef::List(list) = value.reflect_ref() else {
-                    return Err(anyhow!("concat expects lists"));
-                };
-                for item in list.iter() {
-                    output.push_box(item.clone_value());
-                }
-            }
-            Ok(Some(Box::new(output)))
-        })
-    }
-
-    /// Stable set union with an explicit identity function. First occurrence wins.
-    pub fn union_by<K: Eq + std::hash::Hash + 'static>(
-        &mut self,
-        inputs: &[BindingNode],
-        key: impl Fn(&dyn PartialReflect) -> Result<K> + Send + Sync + 'static,
-    ) -> Result<BindingNode> {
-        let joined = self.concat(inputs)?;
-        self.map("union_by", &[joined], move |mut values| {
-            let Some(value) = values.remove(0) else {
-                return Ok(None);
-            };
-            let ReflectRef::List(list) = value.reflect_ref() else {
-                return Err(anyhow!("union expects a list"));
-            };
-            let mut keys = HashSet::new();
-            let mut output = DynamicList::default();
-            for item in list.iter() {
-                if keys.insert(key(item)?) {
-                    output.push_box(item.clone_value());
-                }
-            }
-            Ok(Some(Box::new(output)))
-        })
-    }
-
-    /// Stable set intersection with an explicit identity function. The first
-    /// occurrence from the first input wins. All inputs must be lists.
-    pub fn intersection_by<K: Eq + std::hash::Hash + 'static>(
-        &mut self,
-        inputs: &[BindingNode],
-        key: impl Fn(&dyn PartialReflect) -> Result<K> + Send + Sync + 'static,
-    ) -> Result<BindingNode> {
-        self.map("intersection_by", inputs, move |values| {
-            let mut values = values.into_iter();
-            let Some(first) = values.next().flatten() else { return Ok(None) };
-            let ReflectRef::List(first_list) = first.reflect_ref() else {
-                return Err(anyhow!("intersection expects lists"));
-            };
-            let mut common = HashSet::new();
-            common.extend(first_list.iter().map(&key).collect::<Result<Vec<_>>>()?);
-            for value in values {
-                let Some(value) = value else { return Ok(None) };
-                let ReflectRef::List(list) = value.reflect_ref() else {
-                    return Err(anyhow!("intersection expects lists"));
-                };
-                let keys = list.iter().map(&key).collect::<Result<HashSet<_>>>()?;
-                common.retain(|item| keys.contains(item));
-            }
-            let mut emitted = HashSet::new();
-            let mut output = DynamicList::default();
-            for item in first_list.iter() {
-                let item_key = key(item)?;
-                if common.contains(&item_key) && emitted.insert(item_key) {
-                    output.push_box(item.clone_value());
-                }
-            }
-            Ok(Some(Box::new(output)))
-        })
-    }
-
-    /// Stable set difference with an explicit identity function. Returns the
-    /// first input minus keys found in any later input; first occurrence wins.
-    pub fn difference_by<K: Eq + std::hash::Hash + 'static>(
-        &mut self,
-        inputs: &[BindingNode],
-        key: impl Fn(&dyn PartialReflect) -> Result<K> + Send + Sync + 'static,
-    ) -> Result<BindingNode> {
-        self.map("difference_by", inputs, move |mut values| {
-            let Some(first) = values.remove(0) else { return Ok(None) };
-            let ReflectRef::List(first) = first.reflect_ref() else {
-                return Err(anyhow!("difference expects lists"));
-            };
-            let mut excluded = HashSet::new();
-            for value in values {
-                let Some(value) = value else { return Ok(None) };
-                let ReflectRef::List(list) = value.reflect_ref() else {
-                    return Err(anyhow!("difference expects lists"));
-                };
-                excluded.extend(list.iter().map(&key).collect::<Result<Vec<_>>>()?);
-            }
-            let mut emitted = HashSet::new();
-            let mut output = DynamicList::default();
-            for item in first.iter() {
-                let item_key = key(item)?;
-                if !excluded.contains(&item_key) && emitted.insert(item_key) {
-                    output.push_box(item.clone_value());
-                }
-            }
-            Ok(Some(Box::new(output)))
-        })
-    }
 
     /// Applies after every computation completes. Missing values retain the target.
     /// The reflected writer suppresses equal writes, and retries missing targets.

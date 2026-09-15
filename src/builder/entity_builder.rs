@@ -265,21 +265,24 @@ pub trait BaseBuilder<'a>: Builder<'a> {
 
     /// Checked path equivalent of bind_component_property, using this entity as
     /// the destination. Direct graphs retain the existing change-driven timing.
-    fn bind_from(&mut self, source: impl IntoBindingPath, target: impl IntoComponentBindingPath) -> &mut Self {
-        match (source.into_binding_path(), target.into_component_binding_path()) {
-            (Ok(source), Ok(target)) => {
-                let target = target.at(self.id());
-                queue_checked_builder_binding(&mut self.get_commands().commands(), source, target);
-            }
-            (Err(error), _) | (_, Err(error)) => {
-                self.get_commands().commands().queue(move |_: &mut World| -> bevy::prelude::Result { Err(error.into()) });
-            }
+    fn bind_from(&mut self, source: impl IntoBindingExpr, target: impl IntoComponentBindingPath) -> &mut Self {
+        if let Err(error) = self.try_bind_from(source, target) {
+            self.get_commands().commands().queue(move |_: &mut World| -> bevy::prelude::Result { Err(error.into()) });
         }
         self
     }
 
+    /// Return construction errors immediately. Installation and evaluation errors
+    /// still use Bevy's command handler and graph diagnostics respectively.
+    fn try_bind_from(&mut self, source: impl IntoBindingExpr, target: impl IntoComponentBindingPath) -> BindingResult<&mut Self> {
+        let owner = self.id();
+        let binding = source.into_binding_expr().prepare(target.into_component_binding_path()?.at(owner))?;
+        binding.queue(&mut self.get_commands().commands(), owner);
+        Ok(self)
+    }
+
     /// Bind a computed node using BindingGraphPlugin's explicit runtime.
-    /// Unlike bind_from, this refreshes every graph evaluation.
+    /// Like expression-based bind_from, this refreshes every graph evaluation.
     fn bind_node(&mut self, mut graph: BindingGraph, node: BindingNode, target: impl IntoComponentBindingPath) -> BindingResult<&mut Self> {
         let owner = self.id();
         graph.bind(node, target.into_component_binding_path()?.at(owner))?;
@@ -288,16 +291,28 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
     /// Checked list source with the existing row construction and list renderer.
-    fn bind_list_from<S, SM>(&mut self, source: impl IntoBindingPath, create_entity_system: S) -> &mut Self
+    fn bind_list_from<S, SM>(&mut self, source: impl IntoBindingExpr, create_entity_system: S) -> &mut Self
+    where S: EntitySys<SM> {
+        if let Err(error) = self.try_bind_list_from(source, create_entity_system) {
+            self.get_commands().commands().queue(move |_: &mut World| -> bevy::prelude::Result { Err(error.into()) });
+        }
+        self
+    }
+
+    /// Fallible list attachment. Invalid expressions do not insert a list or
+    /// register its row callback.
+    fn try_bind_list_from<S, SM>(&mut self, source: impl IntoBindingExpr, create_entity_system: S) -> BindingResult<&mut Self>
     where S: EntitySys<SM> {
         use bevy::reflect::List;
+        let owner = self.id();
+        let binding = source.into_binding_expr().prepare(binding_path!(owner, ReactiveListView.value)?)?;
         let create_entity_func = EntityFunc::new(&mut self.get_commands().commands(), create_entity_system);
         self.insert(ReactiveListView {
             value: Vec::<()>::new().to_dynamic_list(),
             create_entity_func: Some(create_entity_func),
         });
-        // The fixed destination is checked by the same macro used by callers.
-        self.bind_from(source, component_path!(ReactiveListView.value))
+        binding.queue(&mut self.get_commands().commands(), owner);
+        Ok(self)
     }
 
     /// Collection editing with explicit identity and write policy. Requires EditBindingPlugin.

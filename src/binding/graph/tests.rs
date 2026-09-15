@@ -1,5 +1,6 @@
 use super::*;
 use bevy_trait_query::RegisterExt;
+mod processing;
 
 #[derive(Component, Reflect, Clone, PartialEq)]
 #[reflect(PartialEq)]
@@ -147,8 +148,9 @@ fn list_union_is_stable_and_assignment_shrinks_to_empty() {
     let a_node = graph.source(at(a, "items")).unwrap();
     let b_node = graph.source(at(b, "items")).unwrap();
     let union = graph
-        .union_by(&[a_node, b_node], |item| {
-            i32::from_reflect(item).ok_or_else(|| anyhow!("Expected integer"))
+        .process((a_node, b_node), |a: Vec<i32>, b: Vec<i32>| {
+            let mut seen = HashSet::new();
+            Ok(a.into_iter().chain(b).filter(|value| seen.insert(*value)).collect::<Vec<_>>())
         })
         .unwrap();
     graph.bind(union, at(target, "items")).unwrap();
@@ -177,12 +179,13 @@ fn list_intersection_and_difference_are_stable_sets() {
     let a_node = graph.source(at(a, "items")).unwrap();
     let b_node = graph.source(at(b, "items")).unwrap();
     let c_node = graph.source(at(c, "items")).unwrap();
-    let key = |item: &dyn PartialReflect| {
-        i32::from_reflect(item).ok_or_else(|| anyhow!("Expected integer"))
-    };
-    let intersection = graph.intersection_by(&[a_node, b_node, c_node], key).unwrap();
-    let difference = graph.difference_by(&[a_node, b_node], |item| {
-        i32::from_reflect(item).ok_or_else(|| anyhow!("Expected integer"))
+    let intersection = graph.process((a_node, b_node, c_node), |a: Vec<i32>, b: Vec<i32>, c: Vec<i32>| {
+        let mut seen = HashSet::new();
+        Ok(a.into_iter().filter(|item| b.contains(item) && c.contains(item) && seen.insert(*item)).collect::<Vec<_>>())
+    }).unwrap();
+    let difference = graph.process((a_node, b_node), |a: Vec<i32>, b: Vec<i32>| {
+        let mut seen = HashSet::new();
+        Ok(a.into_iter().filter(|item| !b.contains(item) && seen.insert(*item)).collect::<Vec<_>>())
     }).unwrap();
     graph.bind(intersection, at(target, "items")).unwrap();
     graph.bind(difference, at(difference_target, "items")).unwrap();
@@ -308,7 +311,7 @@ fn rejects_foreign_nodes_commands_and_bad_paths_and_cleans_up_owners() {
     let mut a = BindingGraph::new();
     let mut b = BindingGraph::new();
     let node = a.constant(1_i32).unwrap();
-    assert!(b.concat(&[node]).is_err());
+    assert!(b.process(node, |value: i32| Ok(value)).is_err());
     let mut invalid = BindingGraph::new();
     invalid
         .system(
@@ -774,12 +777,12 @@ fn uuid_set_minus_map_keys_renders_scalar_rows() {
         let mut graph = BindingGraph::new();
         let available = graph.source(binding_path!(source, Networks.available).unwrap()).unwrap();
         let configured = graph.source(binding_path!(source, Networks.configured).unwrap()).unwrap();
-        let available = graph.map_value::<HashSet<Uuid>, Vec<Uuid>>(available,
-            |set| Ok(set.into_iter().collect())).unwrap();
-        let configured = graph.map_value::<std::collections::HashMap<Uuid, String>, Vec<Uuid>>(configured,
-            |map| Ok(map.into_keys().collect())).unwrap();
-        let difference = graph.difference_by(&[available, configured],
-            |item| Uuid::from_reflect(item).ok_or_else(|| anyhow!("Expected UUID"))).unwrap();
+        let difference = graph.process((available, configured),
+            |available: HashSet<Uuid>, configured: std::collections::HashMap<Uuid, String>| {
+                let mut ids: Vec<_> = available.into_iter().filter(|id| !configured.contains_key(id)).collect();
+                ids.sort_unstable();
+                Ok(ids)
+            }).unwrap();
         commands.entity(owner).builder().bind_list_node(graph, difference,
             |In(row): In<Entity>, views: Query<&ReactiveView>, mut commands: Commands| {
                 let view = views.get(row).unwrap();
