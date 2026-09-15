@@ -45,10 +45,10 @@ as with existing list views. A standalone setup must also register the map
 components and schedule the processor itself.
 
 Map snapshots replace the whole `DynamicMap`, so deleted keys and shortened
-nested lists do not remain. As with the current list renderer, changes despawn
-and rebuild all children, including descendants. The container therefore owns
-all its children. These rows are presentation snapshots; editing them does not
-write back to the source. Use an explicit editing adapter for write-back.
+nested lists do not remain. Unchanged key/value pairs retain their row entities
+and descendants, including active editors and focus. Only removed or changed entries are despawned; new or
+changed values invoke the renderer again. The container owns all its children.
+These rows are presentation snapshots; editing them does not write back to the source. Use an explicit editing adapter for write-back.
 Callbacks are skipped for maps with no renderer (for example after deserialization).
 Serialization omits callbacks; custom payload types need the same reflected
 type registration as `Dynamic`/`ReactiveView`.
@@ -78,7 +78,7 @@ Automatically selecting a component from the reflected kind would still need
 layout and callback choices. Keeping that choice explicit supports summaries,
 custom editors, and nested collections through one stable row-value path.
 
-The current value/container distinction is sound. The larger future improvement
-is keyed reconciliation: retain row entities across collection changes to
-preserve focus and local UI state. That is independent of splitting structs
-from opaque values or automatically selecting renderers.
+The current value/container distinction is sound. A possible future improvement
+is updating changed row values in place, with a separate callback contract for
+renderers that currently consume snapshots. That is independent of splitting
+structs from opaque values or automatically selecting renderers.

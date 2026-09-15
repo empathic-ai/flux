@@ -440,15 +440,36 @@ pub fn process_reactive_lists(mut commands: Commands, reactive_lists: Query<(Ent
     }
 }
 
-/// Rebuild map rows from a snapshot, with both key and value available to renderers.
+/// Reconcile a map snapshot, retaining unchanged rows and their nested UI state.
 #[cfg(feature = "bevy_std")]
-pub fn process_reactive_maps(mut commands: Commands, maps: Query<(Entity, &ReactiveMapView), Changed<ReactiveMapView>>) {
-    use bevy::reflect::Map;
-    for (entity, map) in &maps {
+pub fn process_reactive_maps(
+    mut commands: Commands,
+    maps: Query<(Entity, &ReactiveMapView, Option<&Children>), Changed<ReactiveMapView>>,
+    rows: Query<(&ReactiveMapKey, &ReactiveView)>,
+) {
+    use bevy::reflect::{DynamicMap, Map};
+    for (entity, map, children) in &maps {
         // A deserialized/unconfigured view has no renderer yet.
         let Some(render) = map.create_entity_func.as_ref() else { continue };
-        commands.entity(entity).despawn_related::<Children>();
+        let mut retained = DynamicMap::default();
+        if let Some(children) = children {
+            for child in children.iter() {
+                if let Ok((key, value)) = rows.get(child) {
+                    let key = key.value.as_ref();
+                    if map.value.get(key).is_some_and(|next| {
+                        next.reflect_partial_eq(value.value.as_ref()) == Some(true)
+                    }) {
+                        retained.insert_boxed(key.clone_value(), Box::new(()));
+                        continue;
+                    }
+                }
+                // Changed values still rerun the renderer, preserving snapshot-callback
+                // semantics. Removing one key must not rebuild every other row/editor.
+                commands.entity(child).despawn();
+            }
+        }
         for (key, value) in map.value.iter() {
+            if retained.get(key).is_some() { continue; }
             let child = commands.spawn((
                 ReactiveMapKey { value: Dynamic::new(key) },
                 ReactiveView { value: Dynamic::new(value) },

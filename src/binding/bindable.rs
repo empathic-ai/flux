@@ -38,7 +38,8 @@ mod dynamic;
 pub use dynamic::Dynamic;
 
 /// Renders a map snapshot as children. Rows carry `ReactiveMapKey` and `ReactiveView`.
-/// As with list views, changes rebuild all children; iteration order is unspecified.
+/// Unchanged entries retain their children; changed entries rerun the renderer.
+/// Iteration order is unspecified.
 #[derive(Component, SmartClone, Debug, Reflect, Reactive, Serialize, Deserialize)]
 pub struct ReactiveMapView {
     #[clone(clone_with = "DynamicMap::to_dynamic_map")]

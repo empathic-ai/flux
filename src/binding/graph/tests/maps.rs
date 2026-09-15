@@ -103,3 +103,60 @@ fn invalid_map_expression_has_no_partial_attachment() {
     assert!(app.world().get::<ReactiveMapView>(owner).is_none());
     assert!(app.world().resource::<BindingGraphs>().graphs.is_empty());
 }
+
+#[test]
+fn removing_one_map_entry_preserves_other_editors_without_rendering_them_again() {
+    #[derive(Resource, Default)]
+    struct Renders(usize);
+    #[derive(Component)]
+    struct Draft(String);
+
+    let mut app = app();
+    app.register_component_as::<dyn Reactive, MapSource>();
+    app.add_reactive::<ReactiveMapView>()
+        .add_reactive::<ReactiveMapKey>()
+        .add_reactive::<ReactiveView>();
+    app.init_resource::<Renders>();
+    app.add_systems(PostUpdate, process_reactive_maps.after(BindingGraphSet));
+    let source = app.world_mut().spawn(MapSource {
+        entries: (0..32).map(|i| (i.to_string(), vec![i])).collect(),
+    }).id();
+    let owner = app.world_mut().spawn_empty().id();
+    app.world_mut().run_system_once(move |mut commands: Commands| {
+        commands.entity(owner).builder().bind_map_from(
+            path!(source, MapSource.entries),
+            |In(row): In<Entity>, mut commands: Commands, mut renders: ResMut<Renders>| {
+                renders.0 += 1;
+                commands.entity(row).with_children(|parent| {
+                    parent.spawn(Draft("unsaved credentials".into()));
+                });
+            },
+        );
+    }).unwrap();
+    app.update();
+    let rows: HashMap<String, Entity> = app.world().get::<Children>(owner).unwrap().iter()
+        .map(|row| (String::from_reflect(app.world().get::<ReactiveMapKey>(row).unwrap().value.as_ref()).unwrap(), row))
+        .collect();
+    assert_eq!(rows.len(), 32);
+    assert_eq!(app.world().resource::<Renders>().0, 32);
+    let editor = app.world().get::<Children>(rows["1"]).unwrap()[0];
+
+    // Saving one network filters only that key out of the available-map snapshot.
+    app.world_mut().get_mut::<MapSource>(source).unwrap().entries.remove("0");
+    app.update();
+    assert!(app.world().get_entity(rows["0"]).is_err());
+    assert_eq!(app.world().get::<Children>(owner).unwrap().len(), 31);
+    assert_eq!(app.world().resource::<Renders>().0, 32);
+    for (key, row) in &rows {
+        if key != "0" { assert!(app.world().get_entity(*row).is_ok()); }
+    }
+    assert_eq!(app.world().get::<Draft>(editor).unwrap().0, "unsaved credentials");
+
+    // A changed value still rebuilds its snapshot callback; unrelated rows survive.
+    app.world_mut().get_mut::<MapSource>(source).unwrap().entries.insert("2".into(), vec![99]);
+    app.update();
+    assert!(app.world().get_entity(rows["2"]).is_err());
+    assert_eq!(app.world().resource::<Renders>().0, 33);
+    assert!(app.world().get::<Draft>(editor).is_some());
+    assert_ok(&app);
+}
