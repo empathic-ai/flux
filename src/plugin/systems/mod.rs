@@ -383,65 +383,58 @@ pub fn process_reactive_lists(mut commands: Commands, reactive_lists: Query<(Ent
             commands.entity(entity).despawn_related::<Children>();
 
             for item in list.value.iter() {
-                if let Some(dynamic_struct) = item.to__dynamic_struct() {
-                    use bevy::ecs::error::HandleError;
+                use bevy::ecs::error::HandleError;
 
-                    let element_type = dynamic_struct.get_represented_type_info().unwrap().type_path_table().short_path();
+                let element_type = item.reflect_short_type_path().to_owned();
+                let item_value = item.clone_value();
 
-                    let child = commands.spawn(ReactiveView { value: dynamic_struct }).id();
+                let child = commands.spawn(ReactiveView { value: Dynamic::new(item) }).id();
 
-                    commands.entity(entity).add_child(child);
-                
-                    list.create_entity_func.as_ref().unwrap().call(&mut commands, child);
-                    
-                    let item_value = item.clone_value();
+                commands.entity(entity).add_child(child);
 
-                    //let target_component_name = target_component_name.clone();
-                    //let target_property_path = target_property_path.clone();
-                    //let binding = binding.clone();
+                list.create_entity_func.as_ref().unwrap().call(&mut commands, child);
 
-                    let system_id = commands.register_system(move |world: &mut World| {
-                        use std::collections::HashSet;
-                        use bevy::ecs::system::SystemState;
-                        use nameof::{name_of, name_of_type};
+                let system_id = commands.register_system(move |world: &mut World| {
+                    use std::collections::HashSet;
+                    use bevy::ecs::system::SystemState;
+                    use nameof::{name_of, name_of_type};
 
-                        let mut system_state: SystemState<(Res<DBConfig>, ReactivesQuery)> =
-                            SystemState::new(world);
-                        let (db_config, mut reactives) = system_state.get_mut(world);
+                    let mut system_state: SystemState<(Res<DBConfig>, ReactivesQuery)> =
+                        SystemState::new(world);
+                    let (db_config, mut reactives) = system_state.get_mut(world);
 
-                        // List-item application doesn't feed back into the caller's changed_reactives--processed during next update_bindings() call
-                        let mut scratch_changed = HashSet::new();
+                    // List-item application doesn't feed back into the caller's changed_reactives--processed during next update_bindings() call
+                    let mut scratch_changed = HashSet::new();
 
-                        let result = apply_value_at_target_path(
-                            &mut reactives,
-                            &db_config,
-                            child,
-                            name_of_type!(ReactiveView).to_string(),
-                            Some(name_of!(value in ReactiveView).to_string()),
-                            item_value.clone_value(),
-                            &mut scratch_changed,
+                    let result = apply_value_at_target_path(
+                        &mut reactives,
+                        &db_config,
+                        child,
+                        name_of_type!(ReactiveView).to_string(),
+                        Some(name_of!(value in ReactiveView).to_string()),
+                        item_value.clone_value(),
+                        &mut scratch_changed,
+                    );
+
+                    system_state.apply(world);
+
+                    result.map_err(|err| {
+                        info!(
+                            "Failed to apply list element of type: {}. {}",
+                            element_type,
+                            err
                         );
 
-                        system_state.apply(world);
+                        anyhow!(
+                            "Failed to apply list element of type: {}. {}",
+                            element_type,
+                            err
+                        )
+                    })
+                });
 
-                        result.map_err(|err| {
-                            info!(
-                                "Failed to apply list element of type: {}. {}",
-                                element_type,
-                                err
-                            );
-
-                            anyhow!(
-                                "Failed to apply list element of type: {}. {}",
-                                element_type,
-                                err
-                            )
-                        })
-                    });
-
-                    commands.queue(command::run_system(system_id));
-                    commands.unregister_system(system_id);
-                }
+                commands.queue(command::run_system(system_id));
+                commands.unregister_system(system_id);
             }
         }
     }

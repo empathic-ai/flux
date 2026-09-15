@@ -341,14 +341,14 @@ fn present<T: Reflect + FromReflect + Clone + PartialEq>(
     entity: Entity,
     value: &T,
 ) {
-    if let ReflectRef::Struct(s) = value.reflect_ref() {
+    if matches!(value.reflect_ref(), ReflectRef::Struct(_)) {
         let same = world
             .get::<ReactiveView>(entity)
-            .and_then(|v| T::from_reflect(&v.value))
+            .and_then(|v| T::from_reflect(v.value.as_ref()))
             .is_some_and(|old| old == *value);
         if !same {
             world.entity_mut(entity).insert(ReactiveView {
-                value: s.to_dynamic_struct(),
+                value: crate::prelude::Dynamic::new(value),
             });
         }
     }

@@ -208,10 +208,10 @@ pub trait BaseBuilder<'a>: Builder<'a> {
     }
 
 
-    fn reactive_view<T: Struct>(&mut self, value: T) -> &mut Self {
+    fn reactive_view<T: PartialReflect>(&mut self, value: T) -> &mut Self {
         self.insert((
             ReactiveView {
-                value: value.clone_dynamic()
+                value: Dynamic::new(&value)
             },
         ))
     }

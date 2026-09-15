@@ -10,7 +10,7 @@ use ::serde::{
 };
 use std::{collections::{BTreeMap, HashMap}, fmt};
 
-fn register_common_types(registry: &mut TypeRegistry) {
+pub(crate) fn register_common_types(registry: &mut TypeRegistry) {
     registry.register_global_types();
     registry.register::<String>();
     registry.register::<Option<String>>();
@@ -65,6 +65,9 @@ mod tests {
         wifi_configs: HashMap<String, String>,
     }
 
+    // Receiving reflected payloads requires their concrete type registration.
+    enable_global_type_registration!(WifiConfigEvent);
+
     #[test]
     fn network_event_serializes_hash_map_payloads() {
         let ev = NetworkEvent::new(
@@ -77,6 +80,9 @@ mod tests {
             },
         );
 
+        let json = serde_json::to_string(&ev).expect("network event should serialize to JSON");
+        let _: NetworkEvent = serde_json::from_str(&json)
+            .expect("network event should deserialize from JSON");
         let bytes = postcard::to_allocvec(&ev).expect("network event should serialize");
         let decoded = postcard::from_bytes::<NetworkEvent>(&bytes)
             .expect("network event should deserialize");

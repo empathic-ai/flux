@@ -1253,6 +1253,11 @@ pub fn apply_value_at_target_path<'w, 's>(
         // Walk forward, chaining real mutable borrows, until the path ends or we hit
         // an Id-typed value that needs to jump to a different entity/component.
         while path_index < parsed_path.0.len() {
+            // A value slot is transparent while traversing into its contents.
+            // Leave the wrapper intact when the path ends at the slot itself.
+            while current_value.try_downcast_ref::<Dynamic>().is_some() {
+                current_value = current_value.try_downcast_mut::<Dynamic>().unwrap().as_mut();
+            }
             // Match PathWalker: unwrap an Option before interpreting the next
             // access, especially before checking for an Id entity jump.
             if is_option(&current_value.to_dynamic()) {
@@ -1326,6 +1331,17 @@ fn apply_value_with_changes(
     target_component_name: String,
     changed_reactives: &mut HashSet<(Entity, String)>,
 ) -> Result<()> {
+
+    // A Dynamic field is an assignable value slot, including whole Options
+    // and collections. Handle it before shape coercion and list patching.
+    let source_value = Dynamic::unwrap(source_value);
+    if let Some(target_value) = target_value.try_downcast_mut::<Dynamic>() {
+        if target_value.as_ref().reflect_partial_eq(source_value.as_ref()) != Some(true) {
+            *target_value = Dynamic(source_value);
+            changed_reactives.insert((target_entity, target_component_name));
+        }
+        return Ok(());
+    }
 
     let mut _source_value: Box<dyn PartialReflect> = source_value.to_dynamic();
 

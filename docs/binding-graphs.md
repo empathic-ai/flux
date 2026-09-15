@@ -147,6 +147,20 @@ This can connect the current result to any multi-input/custom operator. Pipeline
 construction is fallible, not transactional: discard the unfinished graph if a
 stage fails. Nodes already added are not automatically rolled back.
 
+List rows expose every item directly in `ReactiveView.value`, an owned `Dynamic`
+reflected value. Struct field paths remain unchanged. Read scalar items with
+`Uuid::from_reflect(view.value.as_ref())`, or bind from
+`binding_path!(row, ReactiveView.value)`. This applies to `bind_list`,
+`bind_list_from`, and `bind_list_node`. Row callbacks receive the populated
+`ReactiveView` for every item, including duplicate values.
+
+`Dynamic` is a thin wrapper around `Box<dyn PartialReflect>` with cloning and
+Serde support. It uses the fork's reflected serializers and preserves the
+existing struct-value wire format. As with `DynamicStruct`, custom payload and
+collection types must be registered on the receiving side (the `Reactive`
+derive does this for application types; otherwise use
+`enable_global_type_registration!(YourType)`).
+
 Use `bind_node(graph, node, component_path!(Target.field))?` or
 `bind_list_node(graph, node, create_row_system)?` to connect a computed graph to a
 builder. These consume/install the graph and require `BindingGraphPlugin`.

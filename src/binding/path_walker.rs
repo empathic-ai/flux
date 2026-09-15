@@ -70,7 +70,7 @@ impl<'a, R: EntityResolver> PathWalker<'a, R> {
     pub fn new(root: Box<dyn PartialReflect>, path: &'a OptionalParsedPath, resolver: &'a R) -> Self {
         Self {
             resolver,
-            current: root,
+            current: Dynamic::unwrap(root),
             remaining: path.0.iter(),
             stopped: None,
         }
@@ -126,7 +126,7 @@ impl<'a, R: EntityResolver> Iterator for PathWalker<'a, R> {
                 });
             };
 
-            self.current = value;
+            self.current = Dynamic::unwrap(value);
             return Some(PathStep::EntityJump {
                 access: offset_access.clone(),
                 entity,
@@ -137,7 +137,7 @@ impl<'a, R: EntityResolver> Iterator for PathWalker<'a, R> {
         // Otherwise, a normal field/index access on the current value.
         match offset_access.access.element(self.current.as_ref(), offset_access.offset) {
             Ok(child) => {
-                self.current = child.clone_value();
+                self.current = Dynamic::unwrap(child.clone_value());
                 Some(PathStep::Field {
                     access: offset_access.clone(),
                     value: self.current.clone_value(),
