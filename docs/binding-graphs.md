@@ -46,6 +46,64 @@ read-only UI or protect a locally edited destination.
 
 ## Checked paths and builder integration
 
+### Inline binding expressions
+
+Use `process` for an ordinary function and `process_system` for a Bevy system.
+Both return a single-use `BindingExpr`, which owns a recipe rather than a node
+in an existing graph. Builders compile and install it automatically:
+
+```rust,ignore
+parent.child().bind_list_from(
+    process(
+        (
+            binding_path!(device_view_entity, DeviceView.available_networks),
+            binding_path!(device_view_entity, ReactiveView.value as Id -> Device.wifi_configs),
+        ),
+        |available: HashSet<Uuid>, configured: HashMap<Uuid, WifiConfig>| {
+            let mut ids: Vec<_> = available.into_iter()
+                .filter(|id| !configured.contains_key(id)).collect();
+            ids.sort_unstable();
+            Ok(ids)
+        },
+    ),
+    render_network,
+);
+
+let adjusted = process_system(
+    binding_path!(source, Model.number),
+    |In((value,)): In<(i32,)>, settings: Res<Settings>| Ok(value + settings.offset),
+);
+let label = process(adjusted, |value: i32| Ok(value.to_string()));
+parent.child().bind_from(label, component_path!(TextLabel.text));
+```
+
+Inputs may be paths, macro `Result<BindingPath>` values, expressions, or
+`Result<BindingExpr>` values. Pass one input directly, a heterogeneous tuple of
+1–16 inputs, or `()` for no inputs. Callbacks use typed positional arguments
+and return `anyhow::Result<Output>`; systems use `In<(A, B, ...)>`.
+Missing values, conversion failures, ECS dependency validation, and read-only
+system restrictions are the same as the explicit graph APIs.
+
+`bind_from` and `bind_list_from` route construction and installation failures
+to Bevy's command error handler. Use `try_bind_from(...)?` or
+`try_bind_list_from(...)?` to handle construction failures immediately, before
+any binding/list commands are queued. Installation errors still occur at command
+application, and evaluation errors remain available through `BindingGraphs::errors`.
+
+For shared nodes, multiple sinks, projections, or two-way links, keep using an
+explicit graph. `graph.add(expression)?` consumes an expression and returns a
+normal `BindingNode`; a failed add rolls back newly constructed nodes.
+Expressions are not cloneable and do not implicitly merge existing graphs:
+reuse a returned node within its graph to share a computation and its system state.
+`bind_node(graph, node, target)` and `bind_list_node(graph, node, render)` remain
+available unchanged.
+
+The input API is unified, but scheduling is preserved: direct paths still use
+the change-driven compatibility scheduler, while computations require
+`BindingGraphPlugin` and evaluate in PostUpdate. Wrapping a path in an identity
+`process` deliberately selects computed scheduling; it is not equivalent for
+locally editable destinations.
+
 The macros are implemented in `flux-derive` and re-exported from
 `flux::prelude::*`. They check Rust types and fields without constructing or
 reading any ECS values:
@@ -82,8 +140,8 @@ parent.child().bind_list_from(
 ```
 
 Path errors from these builders use Bevy's deferred command error handler.
-For fallible application setup, resolve the paths with `?` before calling the
-builder instead. The original signatures of `bind_component_property`,
+For fallible application setup, use the `try_bind_from` and
+`try_bind_list_from` methods. The original signatures of `bind_component_property`,
 `bind_component`, `bind_component_to`, `bind_self_property`, and `bind_list`
 remain available; they now construct direct graphs and lower them using
 `BindingGraph::into_bindings()`.

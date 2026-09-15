@@ -21,7 +21,9 @@ impl<T: IntoBindingPath> IntoBindingExpr for T {
     }
 }
 impl IntoBindingExpr for BindingExpr {
-    fn into_binding_expr(self) -> BindingExpr { self }
+    fn into_binding_expr(self) -> BindingExpr {
+        self
+    }
 }
 impl IntoBindingExpr for Result<BindingExpr> {
     fn into_binding_expr(self) -> BindingExpr {
@@ -29,7 +31,9 @@ impl IntoBindingExpr for Result<BindingExpr> {
     }
 }
 
-mod sealed { pub trait Inputs {} }
+mod sealed {
+    pub trait Inputs {}
+}
 
 /// One expression/path, no inputs, or a heterogeneous tuple of up to 16 inputs.
 pub trait BindingExprInputs<Args>: sealed::Inputs {
@@ -46,8 +50,12 @@ macro_rules! single_input {
         impl sealed::Inputs for $input {}
         impl<T: FromReflect> BindingExprInputs<(T,)> for $input {
             type Nodes = BindingNode;
-            fn expressions(self) -> Vec<BindingExpr> { vec![self.into_binding_expr()] }
-            fn nodes(nodes: Vec<BindingNode>) -> Self::Nodes { nodes[0] }
+            fn expressions(self) -> Vec<BindingExpr> {
+                vec![self.into_binding_expr()]
+            }
+            fn nodes(nodes: Vec<BindingNode>) -> Self::Nodes {
+                nodes[0]
+            }
         }
     };
 }
@@ -112,9 +120,7 @@ where
 
 /// Lazy typed Bevy system computation. Uses In<(A, B, ...)> and read-only
 /// system parameters, with the same validation and state as graph.process_system.
-pub fn process_system<Inputs, Args, Output, S, Marker>(
-    inputs: Inputs, system: S,
-) -> BindingExpr
+pub fn process_system<Inputs, Args, Output, S, Marker>(inputs: Inputs, system: S) -> BindingExpr
 where
     Inputs: BindingExprInputs<Args>,
     Args: 'static,
@@ -139,7 +145,9 @@ impl BindingGraph {
             ExprKind::Path(path) => path.and_then(|path| self.source(path)),
             ExprKind::Computed(compile) => compile(self),
         };
-        if result.is_err() { self.nodes.truncate(start); }
+        if result.is_err() {
+            self.nodes.truncate(start);
+        }
         result
     }
 }
@@ -171,8 +179,9 @@ impl PreparedBinding {
     pub(crate) fn queue(self, commands: &mut Commands, owner: Entity) {
         match self {
             Self::Direct(source, target) => queue_checked_builder_binding(commands, source, target),
-            Self::Graph(graph) => { commands.bind_graph(owner, graph); }
+            Self::Graph(graph) => {
+                commands.bind_graph(owner, graph);
+            }
         }
     }
 }
-

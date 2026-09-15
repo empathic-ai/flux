@@ -1,6 +1,7 @@
 use super::*;
 use bevy_trait_query::RegisterExt;
 mod processing;
+mod expressions;
 
 #[derive(Component, Reflect, Clone, PartialEq)]
 #[reflect(PartialEq)]
@@ -649,6 +650,7 @@ fn list_builders_retain_row_callbacks_and_render_changed_snapshots() {
     let legacy = app.world_mut().spawn_empty().id();
     let checked = app.world_mut().spawn_empty().id();
     let computed = app.world_mut().spawn_empty().id();
+    let expression = app.world_mut().spawn_empty().id();
     app.world_mut().run_system_once(move |mut commands: Commands| {
         let row = |In(entity): In<Entity>, mut commands: Commands| { commands.entity(entity).insert(RowBuilt); };
         commands.entity(legacy).builder().bind_list(source, "Rows", "items", row);
@@ -656,10 +658,16 @@ fn list_builders_retain_row_callbacks_and_render_changed_snapshots() {
         let mut graph = BindingGraph::new();
         let node = binding_node!(graph; source(source, Rows.items) => filter::<Model>(|row| row.number > 1)).unwrap();
         commands.entity(computed).builder().bind_list_node(graph, node, row).unwrap();
+        commands.entity(expression).builder().bind_list_from(
+            process(binding_path!(source, Rows.items), |rows: Vec<Model>| {
+                Ok(rows.into_iter().filter(|row| row.number > 1).collect::<Vec<_>>())
+            }),
+            row,
+        );
     }).unwrap();
     app.update();
     app.update(); // computed list is published in PostUpdate
-    for (entity, count) in [(legacy, 2), (checked, 2), (computed, 1)] {
+    for (entity, count) in [(legacy, 2), (checked, 2), (computed, 1), (expression, 1)] {
         let children = app.world().get::<Children>(entity).unwrap();
         assert_eq!(children.len(), count);
         for child in children.iter() {
@@ -673,7 +681,7 @@ fn list_builders_retain_row_callbacks_and_render_changed_snapshots() {
         .clear();
     app.update();
     app.update();
-    for entity in [legacy, checked, computed] {
+    for entity in [legacy, checked, computed, expression] {
         assert!(
             app.world()
                 .get::<ReactiveListView>(entity)

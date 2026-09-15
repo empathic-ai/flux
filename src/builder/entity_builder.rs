@@ -263,8 +263,8 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self
     }
 
-    /// Checked path equivalent of bind_component_property, using this entity as
-    /// the destination. Direct graphs retain the existing change-driven timing.
+    /// Bind a path or lazy expression to a property on this entity.
+    /// Paths retain change-driven timing; expressions use BindingGraphPlugin.
     fn bind_from(&mut self, source: impl IntoBindingExpr, target: impl IntoComponentBindingPath) -> &mut Self {
         if let Err(error) = self.try_bind_from(source, target) {
             self.get_commands().commands().queue(move |_: &mut World| -> bevy::prelude::Result { Err(error.into()) });
