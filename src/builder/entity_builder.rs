@@ -610,6 +610,19 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         ))
     }
 
+    /// Build children once, when this control and all its ancestors are visible.
+    /// Keep visibility bindings and root state outside this closure.
+    fn lazy_children<F>(&mut self, f: F) -> &mut Self
+    where F: FnOnce(&mut ChildSpawnerCommands<'_>) + Send + Sync + 'static {
+        self.lazy_entity_children(move |_, parent| f(parent))
+    }
+
+    /// Like `lazy_children`, with the stable root entity available to bindings.
+    fn lazy_entity_children<F>(&mut self, f: F) -> &mut Self
+    where F: FnOnce(Entity, &mut ChildSpawnerCommands<'_>) + Send + Sync + 'static {
+        self.upsert(move |pending: &mut LazyView| pending.append(LazyView::new(f)))
+    }
+
     fn entity_with_children<F>(&mut self, f: F) -> &mut Self
     where
         F: FnOnce(Entity, &mut ChildSpawnerCommands<'_>),

@@ -78,6 +78,9 @@ impl FluxPlugin {
 impl Plugin for FluxPlugin {
     fn build(&self, app: &mut App) {
 
+        #[cfg(feature = "bevy_std")]
+        if !app.is_plugin_added::<LazyViewPlugin>() { app.add_plugins(LazyViewPlugin); }
+
         if !app.is_plugin_added::<EditBindingPlugin>() { app.add_plugins(EditBindingPlugin); }
         if !app.is_plugin_added::<BindingGraphPlugin>() { app.add_plugins(BindingGraphPlugin); }
 

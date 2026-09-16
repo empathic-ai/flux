@@ -1,4 +1,6 @@
 pub mod builder;
+mod lazy_view;
+pub use lazy_view::*;
 pub mod child_builder;
 pub mod entity_builder;
 

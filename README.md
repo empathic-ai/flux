@@ -59,3 +59,9 @@ two-way editing, scheduling, examples, and architectural references.
 
 See [reactive views](docs/reactive-views.md) for list/map rendering, nested
 collections, row keys, and the role of `ReactiveView`.
+
+## Lazy view construction
+
+Use `lazy_children` / `lazy_entity_children` to construct content on first
+display and retain it across hide/show cycles. Routes and visibility bindings
+share the same lifecycle. See [lazy views](docs/lazy-views.md).
