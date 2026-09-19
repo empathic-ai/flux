@@ -299,6 +299,36 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         self
     }
 
+
+    fn on_change<T, S, SM, Marker>(
+        &mut self,
+        source: impl IntoComponentBindingPath<Value = T>,
+        system: S,
+    ) -> &mut Self
+    where
+        T: Reflect + FromReflect + Clone + PartialEq + Send + Sync + 'static,
+        S: ValueSys<T, SM> + IntoSystem<In<T>, Result<()>, Marker> + Send + Sync + 'static,
+        //S::System: ReadOnlySystem,
+    {
+        let owner = self.id();
+        let source = source.into_component_binding_path();
+
+        self.get_commands()
+            .commands()
+            .queue(move |world: &mut World| -> bevy::prelude::Result {
+                install_change_binding(
+                    world,
+                    owner,
+                    source?.at(owner),
+                    system,
+                )?;
+
+                Ok(())
+            });
+
+        self
+    }
+
     /// Fallible list attachment. Invalid expressions do not insert a list or
     /// register its row callback.
     fn try_bind_list_from<S, SM>(&mut self, source: impl IntoBindingExpr, create_entity_system: S) -> BindingResult<&mut Self>

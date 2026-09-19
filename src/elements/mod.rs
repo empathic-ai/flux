@@ -1,4 +1,6 @@
 mod interact_state;
+mod ui_components;
+pub use ui_components::*;
 
 pub use interact_state::*;
 use crate::prelude::*;
@@ -44,7 +46,8 @@ pub struct StripePaymentElement {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
-#[require(Node)]
+#[cfg_attr(feature = "bevy_ui", require(Node))]
+#[cfg_attr(not(feature = "bevy_ui"), require(Transform, BackgroundColor))]
 pub struct Control {
     pub name: String,
     pub Type: String,
@@ -268,7 +271,8 @@ impl Default for HList {
 pub struct Shadow {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
-#[require(Node)]
+#[cfg_attr(feature = "bevy_ui", require(Node))]
+#[cfg_attr(not(feature = "bevy_ui"), require(Transform, BackgroundColor))]
 pub struct ImageRect {
     pub image: String,
     pub data: Vec<u8>,

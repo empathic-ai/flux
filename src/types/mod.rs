@@ -22,10 +22,13 @@ mod async_runner;
 #[cfg(feature = "futures")]
 pub use async_runner::*;
 
-#[cfg(feature = "futures")]
+#[cfg(feature = "bevy")]
 mod in_option;
-#[cfg(feature = "futures")]
+#[cfg(feature = "bevy")]
 pub use in_option::*;
+
+mod dynamic;
+pub use dynamic::Dynamic;
 
 pub mod dynamic_struct_serde;
 pub mod dynamic_list_serde;

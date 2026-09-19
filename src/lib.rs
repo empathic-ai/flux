@@ -48,6 +48,8 @@ pub mod types;
 #[path = "plugin/multiplexer.rs"]
 pub mod multiplexer;
 
+pub mod serialization;
+
 pub mod prelude {
 	#[cfg(feature = "server")]
 	pub use crate::server::*;
@@ -75,6 +77,8 @@ pub mod prelude {
 	pub use crate::types::*;
 	#[cfg(feature = "bevy_reflect")]
 	pub use reflect_steroids::prelude::*;
+	pub use crate::serialization::*;
+	pub use postcard::{from_bytes, to_allocvec};
 }
 
 

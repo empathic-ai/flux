@@ -1,5 +1,6 @@
 //! Explicit display, live, and draft editing of typed values behind checked paths.
 use super::*;
+use tracing::warn;
 use crate::prelude::{EntitySys, IntoResult, ReactiveView};
 use bevy_trait_query::RegisterExt;
 use std::collections::HashMap;
@@ -239,16 +240,8 @@ pub struct EditBindings {
 }
 #[derive(SystemSet, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct EditBindingSet;
-pub struct EditBindingPlugin;
-impl Plugin for EditBindingPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<EditBindings>()
-            .register_component_as::<dyn Reactive, EditStatus>()
-            .register_component_as::<dyn Reactive, EditInputStatus>()
-            .add_systems(Update, update_edit_bindings.in_set(EditBindingSet));
-    }
-}
-fn update_edit_bindings(world: &mut World) {
+
+pub fn update_edit_bindings(world: &mut World) {
     // Missing DBConfig means paths are not available yet, not a lost draft.
     if !world.contains_resource::<DBConfig>() {
         return;
@@ -626,6 +619,189 @@ impl<A: EditCollection> Driver for CollectionDriver<A> {
         }
         Ok(())
     }
+}
+
+pub struct ChangeCallback<T>(
+    Box<dyn FnMut(T, &mut World) -> Result<()> + Send + Sync>,
+);
+
+impl<T> ChangeCallback<T>
+where
+    T: Send + Sync + 'static,
+{
+    pub fn new<S, Marker>(system: S) -> Self
+    where
+        S: IntoSystem<In<T>, Result<()>, Marker> + Send + Sync + 'static,
+        //S::System: ReadOnlySystem,
+    {
+        let mut system = IntoSystem::into_system(system);
+        let mut initialized = false;
+
+        Self(Box::new(move |value, world| {
+            if !initialized {
+                system.initialize(world);
+                initialized = true;
+            }
+
+            system.check_change_tick(world.read_change_tick());
+
+            system
+                .validate_param(world)
+                .map_err(|_| anyhow!("on_change system parameters unavailable"))?;
+
+            let result = system.run(value, world);
+
+            system.apply_deferred(world);
+
+            result
+        }))
+    }
+
+    fn call(&mut self, value: T, world: &mut World) -> Result<()> {
+        (self.0)(value, world)
+    }
+}
+
+struct TypedChangeDriver<T, S>
+where
+    T: Reflect + FromReflect + Clone + PartialEq + Send + Sync + 'static,
+    S: System<In = In<T>, Out = Result<()>> + ReadOnlySystem,
+{
+    owner: Entity,
+    reader: Reader,
+    system: S,
+    previous: Option<T>,
+}
+
+struct ChangeDriver<T>
+where
+    T: Reflect + FromReflect + Clone + PartialEq + Send + Sync + 'static,
+{
+    owner: Entity,
+    reader: Reader,
+    previous: Option<T>,
+    callback: ChangeCallback<T>,
+}
+
+impl<T> ChangeDriver<T>
+where
+    T: Reflect + FromReflect + Clone + PartialEq + Send + Sync + 'static,
+{
+    fn update(&mut self, world: &mut World) -> Result<()> {
+        self.reader.check_change_tick(world.read_change_tick());
+
+        self.reader
+            .validate_param(world)
+            .map_err(|_| anyhow!("on_change source unavailable"))?;
+
+        let reflected = self
+            .reader
+            .run_readonly(vec![], world)?;
+
+        let Some(reflected) = reflected else {
+            return Ok(());
+        };
+
+        let value = T::from_reflect(reflected.as_ref())
+            .ok_or_else(|| anyhow!("on_change source has the wrong reflected type"))?;
+
+        let changed = self
+            .previous
+            .as_ref()
+            .is_some_and(|previous| previous != &value);
+
+        if changed {
+            self.callback.call(value.clone(), world)?;
+        }
+
+        self.previous = Some(value);
+
+        Ok(())
+    }
+}
+
+trait DynChangeDriver: Send + Sync {
+    fn update(&mut self, world: &mut World) -> Result<()>;
+}
+
+impl<T> DynChangeDriver for ChangeDriver<T>
+where
+    T: Reflect + FromReflect + Clone + PartialEq + Send + Sync + 'static,
+{
+    fn update(&mut self, world: &mut World) -> Result<()> {
+        ChangeDriver::update(self, world)
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct ChangeBindings {
+    drivers: Vec<ChangeBinding>,
+}
+
+struct ChangeBinding {
+    owner: Entity,
+    driver: Box<dyn DynChangeDriver>,
+}
+
+pub fn update_change_bindings(world: &mut World) {
+    let mut bindings = {
+        let mut registry = world.resource_mut::<ChangeBindings>();
+        std::mem::take(&mut registry.drivers)
+    };
+
+    bindings.retain_mut(|binding| {
+        if world.get_entity(binding.owner).is_err() {
+            return false;
+        }
+
+        if let Err(error) = binding.driver.update(world) {
+            warn!("on_change binding failed: {error}");
+        }
+
+        true
+    });
+
+    world
+        .resource_mut::<ChangeBindings>()
+        .drivers
+        .extend(bindings);
+}
+
+pub fn install_change_binding<T, S, Marker>(
+    world: &mut World,
+    owner: Entity,
+    path: BindingPath,
+    system: S,
+) -> Result<()>
+where
+    T: Reflect + FromReflect + Clone + PartialEq + Send + Sync + 'static,
+    S: IntoSystem<In<T>, Result<()>, Marker> + Send + Sync + 'static,
+    //S::System: ReadOnlySystem,
+{
+    ensure!(
+        world.contains_resource::<ChangeBindings>(),
+        "Add ChangeBindingPlugin before installing on_change bindings"
+    );
+
+    let mut reader = path.reader();
+    reader.initialize(world);
+
+    let callback = ChangeCallback::new(system);
+
+    world
+        .resource_mut::<ChangeBindings>()
+        .drivers
+        .push(ChangeBinding {
+            owner,
+            driver: Box::new(ChangeDriver::<T> {
+                owner,
+                reader,
+                previous: None,
+                callback,
+            }),
+        });
+
+    Ok(())
 }
 
 #[cfg(test)]

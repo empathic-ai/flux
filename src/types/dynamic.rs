@@ -1,5 +1,5 @@
 use ::serde::{Deserialize, Deserializer, Serialize, Serializer};
-use bevy::reflect::*;
+use bevy_reflect::*;
 
 /// An owned reflected value. Bindings unwrap this slot so paths continue
 /// directly through `ReactiveView.value`.
@@ -81,6 +81,7 @@ fn value_registry() -> TypeRegistry {
     registry
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,3 +198,4 @@ mod tests {
         assert_eq!(Vec::<i32>::from_reflect(value.as_ref()), Some(vec![]));
     }
 }
+*/

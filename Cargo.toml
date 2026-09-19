@@ -5,10 +5,10 @@ edition = "2024"
 exclude = ["/examples"]
 
 [features]
-default = ["bevy_std", "futures", "tokio"]
+default = ["bevy_std", "bevy_ui", "futures", "tokio"]
 bevy_reflect = ["serde", "flux_core/bevy_reflect", "dep:bevy_reflect", "reflect-steroids"]
 bevy = ["dep:bevy", "bevy_reflect", "flux_core/bevy", "common/bevy", "bevy-trait-query"]
-bevy_ui = []
+bevy_ui = ["bevy", "bevy/bevy_ui", "bevy/bevy_ui_debug"]
 serde = ["dep:serde", "dep:serde_json", "dep:serde_with"]
 dynamic_linking = ["bevy?/dynamic_linking"]
 tonic = ["dep:tonic", "prost", "dep:tonic-build", "dep:prost-build"]
@@ -18,13 +18,13 @@ futures = ["bevy-async-ecs", "dep:futures", "futures-util", "future_handles"]
 server = ["dioxus-cli-config", "http_server"] # "dioxus-fullstack/server"
 client = []
 surrealdb = ["dep:surrealdb", "castaway"]
-bevy_std = ["bevy", "common/bevy_std", "bevy/bevy_ui", "bevy/bevy_log"]
+bevy_std = ["bevy", "common/bevy_std", "bevy/bevy_log"]
 http_server = ["axum"]
 subsecond = ["bevy_std", "bevy_simple_subsecond_system"]
 
 [dependencies]
 bevy_reflect = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["uuid"], optional = true }
-bevy = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["serialize", "bevy_state", "bevy_color", "bevy_ui_debug", "track_location"], optional = true }
+bevy = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["serialize", "bevy_state", "bevy_color", "track_location"], optional = true }
 bevy_simple_subsecond_system = { git = "https://github.com/Catchawink/bevy_simple_subsecond_system.git", branch = "reflect/serializable-dynamic-types", optional = true }
 dioxus-cli-config = { version = "0.7.0-alpha.2", optional = true }
 # "bevy_ui", "bevy_asset", "bevy_state", "bevy_scene"
@@ -57,6 +57,7 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 nameof = "1.2.2"
 lazy_static = "1.4.0"
 ron = { version = "0.8.1" }
+postcard = { version = "1.1.1", features = ["alloc"] }
 
 [target.'cfg(all(not(target_arch = "xtensa")))'.dependencies]
 async-channel = { version = "2" }

@@ -34,9 +34,6 @@ pub struct ReactiveListView {
     pub create_entity_func: Option<EntityFunc>,
 }
 
-mod dynamic;
-pub use dynamic::Dynamic;
-
 /// Renders a map snapshot as children. Rows carry `ReactiveMapKey` and `ReactiveView`.
 /// Unchanged entries retain their children; changed entries rerun the renderer.
 /// Iteration order is unspecified.

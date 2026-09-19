@@ -1,5 +1,5 @@
 use super::*;
-use crate::prelude::InputField;
+use crate::{plugin::FluxPlugin, prelude::InputField, types::FluxConfig};
 
 #[derive(Reflect, Clone, PartialEq, Debug)]
 struct Item {
@@ -22,7 +22,7 @@ fn item(id: u32) -> Item {
 }
 fn app() -> App {
     let mut app = App::new();
-    app.add_plugins(EditBindingPlugin);
+    app.add_plugins(FluxPlugin::new(FluxConfig::new("".to_string(), None, true)));
     app.register_component_as::<dyn Reactive, Model>();
     app.insert_resource(DBConfig {
         #[cfg(feature = "surrealdb")]

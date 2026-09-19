@@ -288,4 +288,8 @@ where
      <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
 
-    
+pub trait ValueSys<T, SM> = SystemParamFunction<SM, In = In<T>, Out: IntoResult + Send + Sync> + Send + Sync + 'static
+where
+    SM: Send + Sync + 'static,
+     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
+     

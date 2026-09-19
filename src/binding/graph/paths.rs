@@ -55,6 +55,11 @@ impl ComponentBindingPath {
     }
 }
 
+impl std::hash::Hash for ComponentBindingPath {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&(&self.component, &self.path), state);
+    }
+}
 
 /// String-based builder conveniences use the same graph preparation and
 /// installation path as expression-based builders.
@@ -91,14 +96,17 @@ impl IntoBindingPath for Result<BindingPath> {
     }
 }
 pub trait IntoComponentBindingPath {
+    type Value;
     fn into_component_binding_path(self) -> Result<ComponentBindingPath>;
 }
 impl IntoComponentBindingPath for ComponentBindingPath {
+    type Value = Untyped;
     fn into_component_binding_path(self) -> Result<ComponentBindingPath> {
         Ok(self)
     }
 }
 impl IntoComponentBindingPath for Result<ComponentBindingPath> {
+    type Value = Untyped;
     fn into_component_binding_path(self) -> Result<ComponentBindingPath> {
         self
     }
@@ -155,6 +163,105 @@ impl<T> IntoBindingPath for Result<TypedBindingPath<T>> {
 }
 impl<T: ?Sized> From<TypedBindingPath<T>> for BindingPath {
     fn from(path: TypedBindingPath<T>) -> Self { path.erase() }
+}
+
+/// A reflected component/property location without an entity, carrying the
+/// Rust type of its final value.
+///
+/// Obtain one with `component_path!`; call `erase()` for runtime-checked APIs.
+/// Calling `at(entity)` preserves the value type and returns a
+/// `TypedBindingPath<T>`.
+pub struct TypedComponentBindingPath<T: ?Sized> {
+    path: ComponentBindingPath,
+    marker: std::marker::PhantomData<fn(&T) -> &T>,
+}
+
+impl<T: ?Sized> TypedComponentBindingPath<T> {
+    /// Macro support. The projection is type-checked, never executed.
+    #[doc(hidden)]
+    pub fn from_projection<Root>(
+        path: ComponentBindingPath,
+        _: impl FnOnce(&Root) -> &T,
+    ) -> Self {
+        Self {
+            path,
+            marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn erase(self) -> ComponentBindingPath {
+        self.path
+    }
+
+    pub fn at(self, entity: Entity) -> TypedBindingPath<T> {
+        TypedBindingPath {
+            path: self.path.at(entity),
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: ?Sized> Clone for TypedComponentBindingPath<T> {
+    fn clone(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: ?Sized> std::fmt::Debug for TypedComponentBindingPath<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.path.fmt(f)
+    }
+}
+
+impl<T: ?Sized> PartialEq for TypedComponentBindingPath<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
+}
+
+impl<T: ?Sized> Eq for TypedComponentBindingPath<T> {}
+
+impl<T: ?Sized> std::hash::Hash for TypedComponentBindingPath<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.path, state);
+    }
+}
+
+impl<T: ?Sized> PartialEq<ComponentBindingPath> for TypedComponentBindingPath<T> {
+    fn eq(&self, other: &ComponentBindingPath) -> bool {
+        self.path == *other
+    }
+}
+
+impl<T: ?Sized> PartialEq<TypedComponentBindingPath<T>> for ComponentBindingPath {
+    fn eq(&self, other: &TypedComponentBindingPath<T>) -> bool {
+        *self == other.path
+    }
+}
+
+impl<T> IntoComponentBindingPath for TypedComponentBindingPath<T> {
+    type Value = T;
+
+    fn into_component_binding_path(self) -> Result<ComponentBindingPath> {
+        Ok(self.erase())
+    }
+}
+
+impl<T> IntoComponentBindingPath for Result<TypedComponentBindingPath<T>> {
+    type Value = T;
+
+    fn into_component_binding_path(self) -> Result<ComponentBindingPath> {
+        self.map(TypedComponentBindingPath::erase)
+    }
+}
+
+impl<T: ?Sized> From<TypedComponentBindingPath<T>> for ComponentBindingPath {
+    fn from(path: TypedComponentBindingPath<T>) -> Self {
+        path.erase()
+    }
 }
 
 impl BindingPath {

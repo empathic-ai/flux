@@ -1,4 +1,5 @@
 mod database;
+use bevy_trait_query::RegisterExt;
 pub use database::*;
 
 mod commands;
@@ -81,8 +82,15 @@ impl Plugin for FluxPlugin {
         #[cfg(feature = "bevy_std")]
         if !app.is_plugin_added::<LazyViewPlugin>() { app.add_plugins(LazyViewPlugin); }
 
-        if !app.is_plugin_added::<EditBindingPlugin>() { app.add_plugins(EditBindingPlugin); }
         if !app.is_plugin_added::<BindingGraphPlugin>() { app.add_plugins(BindingGraphPlugin); }
+
+        app.init_resource::<EditBindings>()
+            .register_component_as::<dyn Reactive, EditStatus>()
+            .register_component_as::<dyn Reactive, EditInputStatus>()
+            .add_systems(Update, update_edit_bindings.in_set(EditBindingSet));
+
+        app.init_resource::<ChangeBindings>()
+            .add_systems(Update, update_change_bindings);
 
         app.add_reactive::<ReactiveMapView>()
             .add_reactive::<ReactiveMapKey>();
