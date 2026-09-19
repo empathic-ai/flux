@@ -247,6 +247,15 @@ impl EntityFunc {
         S: EntitySys<SM>,
     {
         let system_id = commands.register_system(system);
+        Self::from_system_id(commands, system_id)
+    }
+
+    // Specialize the adapter only for the output type, not for every UI closure
+    // and its system parameters. The registered callback and its state stay intact.
+    fn from_system_id<O: IntoResult + Send + Sync + 'static>(
+        commands: &mut Commands,
+        system_id: SystemId<In<Entity>, O>,
+    ) -> Self {
         let system_id = commands.register_system(move |In(entity): In<Entity>, world: &mut World| {
             let result = world.run_system_with(system_id, entity)?;
             result.into_entity_result()
@@ -292,4 +301,6 @@ pub trait ValueSys<T, SM> = SystemParamFunction<SM, In = In<T>, Out: IntoResult 
 where
     SM: Send + Sync + 'static,
      <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
-     
+
+#[cfg(test)]
+mod tests;
