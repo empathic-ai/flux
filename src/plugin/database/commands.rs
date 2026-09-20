@@ -441,7 +441,13 @@ async fn try_get_record<T, O, S, SM>(
                         .map(|(entity, _)| entity)
                 };
 
-                if found.is_none() {
+                if let Some(entity) = found {
+                    // Different record tables may share an ID (for example User and BillingAccount).
+                    // Attach the missing component without overwriting a concurrently loaded value.
+                    if !world.entity(entity).contains::<T>() {
+                        world.entity_mut(entity).insert(record);
+                    }
+                } else {
                     spawn_record(world, id, record);
                 }
 

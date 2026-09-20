@@ -65,3 +65,8 @@ collections, row keys, and the role of `ReactiveView`.
 Use `lazy_children` / `lazy_entity_children` to construct content on first
 display and retain it across hide/show cycles. Routes and visibility bindings
 share the same lifecycle. See [lazy views](docs/lazy-views.md).
+
+## Record access
+
+See [record access](docs/record-access.md) for owner-only and server-only replication,
+authenticated peer binding, and database authorization.

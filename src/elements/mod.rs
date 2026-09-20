@@ -45,6 +45,10 @@ pub struct StripePaymentElement {
     pub SubmitEntity: Entity
 }
 
+#[derive(bevy::prelude::Component, Debug)]
+pub struct NativeInteraction {
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
 #[cfg_attr(feature = "bevy_ui", require(Node))]
 #[cfg_attr(not(feature = "bevy_ui"), require(Transform, BackgroundColor))]
@@ -301,7 +305,7 @@ impl Default for ImageRect {
     }
 }
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Default)]
 pub struct VScroll {}
 
 #[derive(Component, Debug)]
