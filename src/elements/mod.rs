@@ -274,6 +274,11 @@ impl Default for HList {
 #[derive(Component, Debug, Default)]
 pub struct Shadow {}
 
+/// Renders a transparent element with an opaque CSS box shadow surrounding it.
+/// The DOM renderer uses this to create a single composited cutout window.
+#[derive(Component, Debug, Default)]
+pub struct CutoutOverlay {}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
 #[cfg_attr(feature = "bevy_ui", require(Node))]
 #[cfg_attr(not(feature = "bevy_ui"), require(Transform, BackgroundColor))]

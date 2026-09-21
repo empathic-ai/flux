@@ -251,6 +251,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         queue_builder_binding(&mut self.get_commands().commands(), source, target);
     }
 
+    /*
     fn bind_self_property(&mut self, source_component_name: &str, source_property_path: &str, target_component_name: &str, target_property_path: &str) -> &mut Self {
         let id = self.id().clone();
         self.bind_component_property(id, source_component_name, source_property_path, target_component_name, target_property_path)
@@ -261,7 +262,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         let target = BindingPath::new(self.id(), target_component_name, Some(target_property_path));
         self.queue_builder_binding(source, target);
         self
-    }
+    }*/
 
     /// Bind a path or lazy expression to a property on this entity.
     /// Both use BindingGraphPlugin: paths deliver changes, expressions maintain results.
@@ -462,6 +463,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         Ok(self)
     }
 
+    // TODO: Remove and replace with code to automatically apply bind_from based on source type and this entity's components, or just remove
     fn bind_property(&mut self, entity: Option<Entity>, property_name: &str) -> &mut Self {
         self.insert(
             AutoBindableProperty {
@@ -483,7 +485,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         )
     }
 
-    fn bind_list<S, SM>(&mut self, entity: Entity, component_name: &str, property_name: &str, create_entity_system: S) -> &mut Self
+    fn bind_list<S, SM>(&mut self, source: impl IntoBindingExpr, create_entity_system: S) -> &mut Self
     where S: EntitySys<SM> {
         use bevy::reflect::List;
 
@@ -495,7 +497,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
         });
         
 
-        self.bind_component_property(entity, component_name, property_name, name_of_type!(ReactiveListView),name_of!(value in ReactiveListView))
+        self.bind_from(source, component_path!(ReactiveListView.value))
         /*
         self.insert(
             AutoBindableList {
@@ -1110,9 +1112,9 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     ..default()
                 }
             )).id();
-            parent.child().v_list().bind_list(entity, "", "results",
+            parent.child().v_list().bind_list(path!(entity, SearchInput.results),
                 |In(entity), mut commands: Commands| {
-                    commands.entity(entity).builder().label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true).bind_property(Some(entity), "");
+                    commands.entity(entity).builder().label("".to_string(), DEFAULT_FONT_SIZE, Color::BLACK, Anchor::MiddleLeft, true);
                     Ok(())
                 }
             );
@@ -1354,7 +1356,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     },
                     ..default()
                 },
-            )).bind_component_property(entity, name_of_type!(TextButton), name_of!(label in TextButton), name_of_type!(TextLabel), name_of!(text in TextLabel));
+            )).bind_from(path!(entity, TextButton.label), component_path!(TextLabel.text));
         }).scale_on_hover()
     }
 
@@ -1395,7 +1397,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                         brightness: get_secondary_brightness(color),
                         ..default()
                     },
-                )).bind_component_property(entity, name_of_type!(ImageTextButton), name_of!(image in ImageTextButton), name_of_type!(ImageRect), name_of!(image in ImageRect));
+                )).bind_from(path!(entity, ImageTextButton.image), component_path!(ImageRect.image));
             parent.child().insert((
                 Control {
                     //ExpandWidth: true,
@@ -1408,7 +1410,7 @@ pub trait BaseBuilder<'a>: Builder<'a> {
                     color: get_secondary_color(color),
                     ..default()
                 },
-            )).bind_component_property(entity, name_of_type!(ImageTextButton), name_of!(label in ImageTextButton), name_of_type!(TextLabel), name_of!(text in TextLabel));
+            )).bind_from(path!(entity, ImageTextButton.label), component_path!(TextLabel.text));
         })//.scale_on_hover()
     }
 

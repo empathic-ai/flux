@@ -319,12 +319,16 @@ async fn upsert_record<T, O, S, SM>(
 ) where
     S: UpsertSys<T, SM>,
 {
-    let record: Option<SerdeWrapper<T>> = db
+    let record: Option<SerdeWrapper<T>> = match db
         .lock()
         .await
         .select((T::short_type_path(), id.to_pretty_string()))
         .await
-        .unwrap();
+    {
+        Ok(record) => record,
+        Err(error) if is_missing_table(&error) => None,
+        Err(error) => panic!("Failed to load record before upsert: {error}"),
+    };
     if let Some(mut record) = record {
         let record = record.0;
 
@@ -481,12 +485,29 @@ async fn try_get_record<T, O, S, SM>(
 }
 
 #[cfg(feature = "surrealdb")]
+fn is_missing_table(error: &surrealdb::types::Error) -> bool {
+    matches!(
+        error.not_found_details(),
+        Some(surrealdb::types::NotFoundError::Table { .. })
+    )
+}
+
+#[cfg(feature = "surrealdb")]
 pub async fn get_records<T: FluxRecord>(
     db: Arc<Mutex<Surreal<Any>>>,
 ) -> anyhow::Result<Vec<(Id, T)>> {
     use surrealdb::types::SurrealValue;
 
-    let o: Vec<SerdeWrapper<TypedRecord<T>>> = db.lock().await.select(T::short_type_path()).await.unwrap();
+    let o: Vec<SerdeWrapper<TypedRecord<T>>> = match db
+        .lock()
+        .await
+        .select(T::short_type_path())
+        .await
+    {
+        Ok(records) => records,
+        Err(error) if is_missing_table(&error) => Vec::new(),
+        Err(error) => return Err(error.into()),
+    };
     let o = o
         .iter()
         .map(|record| (Id::from(&record.0.id.key.clone().into_value().as_string().unwrap()), record.0.record.clone()))
