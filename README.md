@@ -70,3 +70,9 @@ share the same lifecycle. See [lazy views](docs/lazy-views.md).
 
 See [record access](docs/record-access.md) for owner-only and server-only replication,
 authenticated peer binding, and database authorization.
+
+## Query expressions
+
+See [query expressions](docs/query-expressions.md) for typed `query!` and
+`query_one!` expressions, ECS and SurrealDB execution, handler system
+parameters, structural ECS filters, and raw query escape hatches.

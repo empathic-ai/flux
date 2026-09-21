@@ -5,6 +5,9 @@ mod commands;
 #[cfg(feature = "futures")]
 pub use commands::*;
 
+mod query;
+pub use query::*;
+
 mod access;
 pub use access::*;
 

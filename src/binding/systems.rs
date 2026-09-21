@@ -38,7 +38,7 @@ impl FluxCommands<'_, '_> {
 // TODO: Add check to see whether entity already exists or not
 pub fn load_record(id: Id, db_config: &mut ResMut<DBConfig>, commands: &mut Commands) -> Entity{
 
-    debug!("Loading record with ID: {:#}", id);
+    info!("Loading record with ID: {:#}", id);
 
     let entity = commands.spawn((DBRecord { id: id.clone() }, Loading {})).id();
 

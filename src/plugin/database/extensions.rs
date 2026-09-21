@@ -2,8 +2,6 @@ use crate::prelude::*;
 use bevy_trait_query::RegisterExt;
 use common::prelude::*;
 #[cfg(feature = "surrealdb")]
-use futures::lock::Mutex;
-#[cfg(feature = "surrealdb")]
 use surrealdb::types::SurrealValue;
 
 use std::collections::HashMap;
@@ -52,7 +50,7 @@ impl<T> TypedID<T> {}
 #[derive(Resource)]
 pub struct DBConfig {
     #[cfg(feature = "surrealdb")]
-    pub db: Arc<Mutex<Surreal<Any>>>,
+    pub db: Arc<Surreal<Any>>,
     //pub async_world: AsyncWorld,
     pub id_mappings: HashMap<Id, Entity>,
     pub entity_mappings: HashMap<Entity, Id>,
@@ -425,6 +423,9 @@ fn handle_db_events<T: FluxRecord>(
             // Recheck at send time: a login may have changed while the DB read was pending.
             if !policies.get::<T>().can_read(id, peers.principal(peer_id)) { return; }
             if let Some(record) = record.get() {
+                
+                info!("Sending {:#}.{} to peer {:#}.", id, T::short_type_path().to_string(), peer_id);
+
                 config.get_multiplexer().send_ev(Id::nil(), peer_id, AddComponentEvent {
                     entity_id: Some(id), component_type: T::short_type_path().to_string(),
                     component: record.to_dynamic_struct(),

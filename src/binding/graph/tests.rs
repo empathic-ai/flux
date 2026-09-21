@@ -29,7 +29,7 @@ fn app() -> App {
     app.register_component_as::<dyn Reactive, Model>();
     app.insert_resource(DBConfig {
         #[cfg(feature = "surrealdb")]
-        db: std::sync::Arc::new(futures::lock::Mutex::new(surrealdb::Surreal::init())),
+        db: std::sync::Arc::new(surrealdb::Surreal::init()),
         id_mappings: Default::default(),
         entity_mappings: Default::default(),
     });

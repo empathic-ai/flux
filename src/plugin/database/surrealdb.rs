@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use bevy_async_ecs::*;
 use bevy_wasm_tasks::*;
 use common::prelude::*;
-use futures::lock::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use surrealdb::{Surreal, engine::any::Any, opt::auth::Root, types::SurrealValue};
@@ -72,7 +71,7 @@ pub fn start(config: Res<FluxConfig>, runner: Res<AsyncRunner>, tasks: Tasks) ->
             .register_system(
                 move |mut commands: Commands, mut state: ResMut<NextState<DbState>>| {
                     commands.insert_resource(DBConfig {
-                        db: Arc::new(Mutex::new(db.clone())),
+                        db: Arc::new(db.clone()),
                         id_mappings: Default::default(),
                         entity_mappings: Default::default(),
                     });
