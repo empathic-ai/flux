@@ -443,6 +443,10 @@ impl Id {
         return Self { id: Uuid::nil() };
     }
 
+    pub fn as_uuid(&self) -> Uuid {
+        self.id
+    }
+
     pub fn from(text: &str) -> Self {
         Self::try_from(text).expect("Id must contain a valid UUID")
     }
