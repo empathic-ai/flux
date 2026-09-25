@@ -11,7 +11,7 @@ use surrealdb::{Surreal, engine::any::Any, opt::auth::Root, types::SurrealValue}
 #[derive(Debug, SurrealValue, Serialize, Deserialize)]
 pub struct Record {
     #[allow(dead_code)]
-    id: surrealdb::types::record_id::RecordId
+    id: surrealdb::types::record_id::RecordId,
 }
 
 pub fn start(config: Res<FluxConfig>, runner: Res<AsyncRunner>, tasks: Tasks) -> Result {
@@ -158,7 +158,9 @@ pub async fn get_database() -> anyhow::Result<Surreal<Any>> {
 
         info!("Connected to database.");
     } else {
-        return Err(anyhow!("Database hasn't been started. Please start the database."));
+        return Err(anyhow!(
+            "Database hasn't been started. Please start the database."
+        ));
     }
 
     Ok(db)

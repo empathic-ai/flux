@@ -1,14 +1,18 @@
-use bevy_reflect::{
-    *, serde::{ReflectDeserializer, ReflectSerializer},
-};
-use reflect_steroids::prelude::*;
 use ::serde::de::DeserializeSeed;
 use ::serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{Error as DeError, MapAccess, Visitor},
     ser::SerializeMap,
 };
-use std::{collections::{BTreeMap, HashMap}, fmt};
+use bevy_reflect::{
+    serde::{ReflectDeserializer, ReflectSerializer},
+    *,
+};
+use reflect_steroids::prelude::*;
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+};
 
 pub(crate) fn register_common_types(registry: &mut TypeRegistry) {
     registry.register_global_types();
@@ -81,16 +85,19 @@ mod tests {
         );
 
         let json = serde_json::to_string(&ev).expect("network event should serialize to JSON");
-        let _: NetworkEvent = serde_json::from_str(&json)
-            .expect("network event should deserialize from JSON");
+        let _: NetworkEvent =
+            serde_json::from_str(&json).expect("network event should deserialize from JSON");
         let bytes = postcard::to_allocvec(&ev).expect("network event should serialize");
-        let decoded = postcard::from_bytes::<NetworkEvent>(&bytes)
-            .expect("network event should deserialize");
+        let decoded =
+            postcard::from_bytes::<NetworkEvent>(&bytes).expect("network event should deserialize");
 
         let payload = decoded
             .get_ev::<WifiConfigEvent>()
             .expect("event payload should be present");
 
-        assert_eq!(payload.wifi_configs.get("Home WiFi"), Some(&"secret".to_string()));
+        assert_eq!(
+            payload.wifi_configs.get("Home WiFi"),
+            Some(&"secret".to_string())
+        );
     }
 }

@@ -78,11 +78,14 @@ impl FluxPlugin {
 
 impl Plugin for FluxPlugin {
     fn build(&self, app: &mut App) {
-
         #[cfg(feature = "bevy_std")]
-        if !app.is_plugin_added::<LazyViewPlugin>() { app.add_plugins(LazyViewPlugin); }
+        if !app.is_plugin_added::<LazyViewPlugin>() {
+            app.add_plugins(LazyViewPlugin);
+        }
 
-        if !app.is_plugin_added::<BindingGraphPlugin>() { app.add_plugins(BindingGraphPlugin); }
+        if !app.is_plugin_added::<BindingGraphPlugin>() {
+            app.add_plugins(BindingGraphPlugin);
+        }
 
         app.init_resource::<EditBindings>()
             .register_component_as::<dyn Reactive, EditStatus>()
@@ -105,7 +108,9 @@ impl Plugin for FluxPlugin {
             )
             .add_systems(
                 PostUpdate,
-                (process_reactive_lists, process_reactive_maps).after(BindingGraphSet).run_if(in_state(DbState::Connected)),
+                (process_reactive_lists, process_reactive_maps)
+                    .after(BindingGraphSet)
+                    .run_if(in_state(DbState::Connected)),
             );
 
         #[cfg(feature = "subsecond")]
@@ -152,7 +157,9 @@ pub fn relay_network_events(
 }
 
 pub trait NetworkCommandsExt {
-    fn send_network_event<T>(&mut self, recipient_id: Id, ev: T) where T: Struct;
+    fn send_network_event<T>(&mut self, recipient_id: Id, ev: T)
+    where
+        T: Struct;
 }
 
 // implement our trait for Bevy's `Commands`
@@ -162,15 +169,10 @@ impl<'w, 's> NetworkCommandsExt for Commands<'w, 's> {
         T: Struct,
     {
         self.queue(move |world: &mut World| {
-            let mut system_state: SystemState<(
-                ResMut<Session>
-            )> = SystemState::new(world);
+            let mut system_state: SystemState<(ResMut<Session>)> = SystemState::new(world);
             {
                 let (mut session) = system_state.get_mut(world);
-                session.send_ev(
-                    recipient_id,
-                    ev,
-                );
+                session.send_ev(recipient_id, ev);
             }
             system_state.apply(world);
         });

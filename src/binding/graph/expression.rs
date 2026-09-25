@@ -28,9 +28,13 @@ use super::*;
 pub struct BindingExpr<T = Untyped>(ExprKind, std::marker::PhantomData<fn(T) -> T>);
 
 impl<T> BindingExpr<T> {
-    fn new(kind: ExprKind) -> Self { Self(kind, std::marker::PhantomData) }
+    fn new(kind: ExprKind) -> Self {
+        Self(kind, std::marker::PhantomData)
+    }
     /// Explicitly discard compile-time value information for dynamic composition.
-    pub fn erase(self) -> BindingExpr { BindingExpr::new(self.0) }
+    pub fn erase(self) -> BindingExpr {
+        BindingExpr::new(self.0)
+    }
 }
 
 enum ExprKind {
@@ -108,8 +112,12 @@ macro_rules! typed_input {
         impl<V> sealed::Inputs for $input {}
         impl<V: BindingValueType<T>, T: FromReflect> BindingExprInputs<(T,)> for $input {
             type Nodes = BindingNode;
-            fn expressions(self) -> Vec<BindingExpr> { vec![self.into_binding_expr().erase()] }
-            fn nodes(nodes: Vec<BindingNode>) -> Self::Nodes { nodes[0] }
+            fn expressions(self) -> Vec<BindingExpr> {
+                vec![self.into_binding_expr().erase()]
+            }
+            fn nodes(nodes: Vec<BindingNode>) -> Self::Nodes {
+                nodes[0]
+            }
         }
     };
 }
@@ -177,7 +185,10 @@ where
 
 /// Lazy typed Bevy system computation. Uses In<(A, B, ...)> and read-only
 /// system parameters, with the same validation and state as graph.process_system.
-pub fn process_system<Inputs, Args, Output, S, Marker>(inputs: Inputs, system: S) -> BindingExpr<Output>
+pub fn process_system<Inputs, Args, Output, S, Marker>(
+    inputs: Inputs,
+    system: S,
+) -> BindingExpr<Output>
 where
     Inputs: BindingExprInputs<Args>,
     Args: 'static,

@@ -20,13 +20,11 @@ fn macro_preserves_leaf_types_without_evaluating_projections() {
     typed::<i32>(path!(entity, ReactiveView.value as Model.number));
     typed::<i32>(path!(entity, ReactiveView.value as Id -> Model.number));
     let _: BindingExpr<i32> = path!(entity, Model.number).into_binding_expr();
-    let _: BindingExpr<String> = process(path!(entity, Model.number), |n: i32| {
-        Ok(n.to_string())
-    });
-    let _: BindingExpr<String> = process_system(
-        path!(entity, Model.number),
-        |In((n,)): In<(i32,)>| Ok(n.to_string()),
-    );
+    let _: BindingExpr<String> = process(path!(entity, Model.number), |n: i32| Ok(n.to_string()));
+    let _: BindingExpr<String> =
+        process_system(path!(entity, Model.number), |In((n,)): In<(i32,)>| {
+            Ok(n.to_string())
+        });
 }
 
 #[test]
@@ -104,17 +102,13 @@ fn typed_paths_keep_runtime_resolution_failures_fallible() {
             .write_value(app.world_mut(), Box::new(2_i32))
             .is_err()
     );
-    let missing_reference = path!(source, Model.next -> Model.number)
-        .unwrap()
-        .erase();
+    let missing_reference = path!(source, Model.next -> Model.number).unwrap().erase();
     assert!(
         missing_reference
             .write_value(app.world_mut(), Box::new(3_i32))
             .is_err()
     );
-    let missing_component = path!(Entity::PLACEHOLDER, Model.number)
-        .unwrap()
-        .erase();
+    let missing_component = path!(Entity::PLACEHOLDER, Model.number).unwrap().erase();
     assert!(
         missing_component
             .write_value(app.world_mut(), Box::new(4_i32))
@@ -162,9 +156,7 @@ fn closure_parameter_types_are_inferred_from_paths_and_nested_expressions() {
     let length = process(ids, |ids| Ok(ids.len() as i32));
     let mut graph = BindingGraph::new();
     let node = graph.add(length).unwrap();
-    graph
-        .bind(node, path!(target, Model.number))
-        .unwrap();
+    graph.bind(node, path!(target, Model.number)).unwrap();
     graph.install(app.world_mut(), target).unwrap();
     app.update();
     assert_eq!(app.world().get::<Model>(target).unwrap().number, 2);

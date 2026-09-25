@@ -10,7 +10,11 @@ use crate::prelude::*;
 /// Abstracts over "how do I look up a reactive component" so the path walker
 /// isn't tied to any specific Query/DBConfig pair.
 pub trait EntityResolver {
-    fn get_reactive(&self, entity: Entity, component_name: &str) -> Option<(Option<String>, Box<dyn PartialReflect>)>;
+    fn get_reactive(
+        &self,
+        entity: Entity,
+        component_name: &str,
+    ) -> Option<(Option<String>, Box<dyn PartialReflect>)>;
     fn resolve_id(&self, id: &Id) -> Option<Entity>;
 }
 
@@ -21,12 +25,16 @@ pub struct ReactiveResolver<'a, 'w, 's> {
 }
 
 impl<'a, 'w, 's> EntityResolver for ReactiveResolver<'a, 'w, 's> {
-    fn get_reactive(&self, entity: Entity, component_name: &str) -> Option<(Option<String>, Box<dyn PartialReflect>)> {
+    fn get_reactive(
+        &self,
+        entity: Entity,
+        component_name: &str,
+    ) -> Option<(Option<String>, Box<dyn PartialReflect>)> {
         let (_, name, reactives) = self.reactives.get(entity).ok()?;
         reactives
             .iter()
             .find(|x| x.reflect_short_type_path() == component_name)
-            .map(|r| (name.map(|name|name.as_str().to_string()), r.clone_value()))
+            .map(|r| (name.map(|name| name.as_str().to_string()), r.clone_value()))
     }
 
     fn resolve_id(&self, id: &Id) -> Option<Entity> {
@@ -67,7 +75,11 @@ pub struct PathWalker<'a, R: EntityResolver> {
 }
 
 impl<'a, R: EntityResolver> PathWalker<'a, R> {
-    pub fn new(root: Box<dyn PartialReflect>, path: &'a OptionalParsedPath, resolver: &'a R) -> Self {
+    pub fn new(
+        root: Box<dyn PartialReflect>,
+        path: &'a OptionalParsedPath,
+        resolver: &'a R,
+    ) -> Self {
         Self {
             resolver,
             current: Dynamic::unwrap(root),
@@ -135,7 +147,10 @@ impl<'a, R: EntityResolver> Iterator for PathWalker<'a, R> {
         }
 
         // Otherwise, a normal field/index access on the current value.
-        match offset_access.access.element(self.current.as_ref(), offset_access.offset) {
+        match offset_access
+            .access
+            .element(self.current.as_ref(), offset_access.offset)
+        {
             Ok(child) => {
                 self.current = Dynamic::unwrap(child.clone_value());
                 Some(PathStep::Field {
@@ -151,7 +166,9 @@ impl<'a, R: EntityResolver> Iterator for PathWalker<'a, R> {
     }
 }
 
-pub fn get_inner_if_option(value: &Box<dyn PartialReflect>) -> (bool, Option<Box<dyn PartialReflect>>) {
+pub fn get_inner_if_option(
+    value: &Box<dyn PartialReflect>,
+) -> (bool, Option<Box<dyn PartialReflect>>) {
     let is_option = is_option(value);
     if is_option {
         if let ReflectRef::Enum(dyn_enum) = value.reflect_ref() {

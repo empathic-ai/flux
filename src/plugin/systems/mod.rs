@@ -5,20 +5,19 @@ use bevy::ecs::component::ComponentId;
 use bevy::ecs::system::{EntityCommands, SystemId};
 use bevy::prelude::*;
 use bevy::reflect::TypeInfo::Struct;
-use bevy::reflect::{TypeRegistry, ReflectMut, ReflectRef};
+use bevy::reflect::{ReflectMut, ReflectRef, TypeRegistry};
 use bevy_trait_query::All;
 
-use serde::{Deserialize, Serialize};
-use std::{any::Any, sync::Arc};
-use std::collections::HashMap;
-use std::any::TypeId;
-use common::prelude::*;
 use anyhow::{Result, anyhow};
+use common::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::any::TypeId;
+use std::collections::HashMap;
+use std::{any::Any, sync::Arc};
 //use bevy_cobweb::prelude::*;
 
 #[derive(Debug, Clone, Default, Component, Reflect)]
-pub struct UserMessage {
-}
+pub struct UserMessage {}
 
 #[derive(Event)]
 pub struct SnapScrollY(pub Entity);
@@ -26,7 +25,7 @@ pub struct SnapScrollY(pub Entity);
 #[derive(Debug, Clone, Default, Component, Reflect)]
 pub struct UsageView {
     pub display: String,
-    pub percent: f32
+    pub percent: f32,
 }
 
 /*
@@ -39,7 +38,6 @@ impl Bindable for UsageView {
     }
 }
 */
-
 
 #[derive(Debug, Clone, Component)]
 pub struct AutoBinding {
@@ -55,13 +53,13 @@ pub struct AutoBinding {
 pub struct AutoSourceBinding {
     pub source_entity: Entity,
     pub source_component_id: TypeId,
-    pub source_property_name: String
+    pub source_property_name: String,
 }
 
 #[derive(Debug, Clone, Default, Component)]
 pub struct WidthLessThan {
     pub is_visible: bool,
-    pub width: f32
+    pub width: f32,
 }
 
 #[derive(Debug, Clone, Default, Component)]
@@ -75,54 +73,55 @@ pub struct ChangedComponents {
 #[derive(Debug, Default, Resource)]
 pub struct Bindings {
     pub bindings_by_source: HashMap<(Entity, TypeId), (Entity, TypeId)>,
-    pub source_changes_by_target: HashMap<(Entity, TypeId), HashMap<String, Box<dyn Any + Send + Sync>>>
+    pub source_changes_by_target:
+        HashMap<(Entity, TypeId), HashMap<String, Box<dyn Any + Send + Sync>>>,
 }
 
 #[derive(Debug, Clone, Event)]
 pub struct LogInEvent {
     pub email: String,
-    pub password: String
+    pub password: String,
 }
 
 #[derive(Debug, Clone, Event)]
-pub struct LogoutEvent {
-}
+pub struct LogoutEvent {}
 
 #[derive(Debug, Clone, Event)]
 pub struct SignUpEvent {
     pub username: String,
     pub email: String,
-    pub password: String
+    pub password: String,
 }
 
 #[derive(Clone, Component, Default)]
-pub struct BindableChanged {
-}
+pub struct BindableChanged {}
 
 #[derive(Clone, Component)]
 pub struct OnClick {
-    pub func: EntityFunc
+    pub func: EntityFunc,
 }
 
 #[derive(Clone, Component)]
 pub struct OnShow {
     pub func: Option<EntityFunc>,
-    pub was_visible: bool
+    pub was_visible: bool,
 }
 
 impl Default for OnShow {
     fn default() -> Self {
-        Self { func: None, was_visible: false }
+        Self {
+            func: None,
+            was_visible: false,
+        }
     }
 }
 
 #[derive(Clone, Component)]
-pub struct Shown {
-}
+pub struct Shown {}
 
 #[derive(Clone, Component, Default, Reflect)]
 pub struct SearchInput {
-    pub results: Vec<String>
+    pub results: Vec<String>,
 }
 
 /*
@@ -138,7 +137,7 @@ impl Bindable for SearchInput {
 
 #[derive(Clone, Component)]
 pub struct OnSubmit {
-    pub func: CommandFuncWithArgs2<HashMap<String, String>>
+    pub func: CommandFuncWithArgs2<HashMap<String, String>>,
 }
 
 #[derive(Clone, Component)]
@@ -148,28 +147,27 @@ pub struct Submitted {
 
 #[derive(Clone, Component, Default)]
 pub struct Form {
-    pub values: HashMap<String, String>
+    pub values: HashMap<String, String>,
 }
 
 #[derive(Clone, Component)]
 pub struct GameManager {
-    pub dynamic_view: Entity
+    pub dynamic_view: Entity,
 }
 
 #[derive(Event, Clone)]
 pub struct HostGameEvent {
     pub game_manager: Entity,
-    pub prompt: String
+    pub prompt: String,
 }
 
 #[derive(Clone, Component)]
 pub struct DynamicView {
-    pub prompt: String
+    pub prompt: String,
 }
 
 #[derive(Clone, Component)]
-pub struct Clicked {
-}
+pub struct Clicked {}
 
 #[derive(Event, Clone)]
 pub struct SubmitEvent(pub Entity);
@@ -181,45 +179,34 @@ pub struct UpdateChatEvent(pub Entity);
 pub struct ClickEvent(pub Entity);
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn update_route() {
-}
+pub fn update_route() {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn route_detection() {
-}
+pub fn route_detection() {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn event_detection() {
-}
+pub fn event_detection() {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn change_detection() {
-}
+pub fn change_detection() {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn base_change_detection() {
-}
+pub fn base_change_detection() {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn remove_detection() {
-}
+pub fn remove_detection() {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn list_change_detection() {
-}
+pub fn list_change_detection() {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn update_heirarchy() {
-}
-
+pub fn update_heirarchy() {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn on_show_detection() {
-}
+pub fn on_show_detection() {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn setup() {
-}
+pub fn setup() {}
 /*
 pub fn get_components_for_entity<'a>(
     entity: &Entity,
@@ -311,23 +298,23 @@ pub struct CommandBuilder<'w, 's> {
 
 impl<'w, 's> CommandBuilder<'w, 's> {
     pub fn new(mut commands: Commands<'w, 's>) -> Self {
-        Self { 
+        Self {
             commands: commands,
             custom_steps: Vec::new(),
         }
     }
 
-    pub fn spawn_entity<T: Bundle>(mut self, bundle: T) -> Self {//&'b mut EntityCommands<'_, '_> {
-        let entity_commands: EntityCommands<'_> = self.commands.spawn(
-            bundle
-        );
+    pub fn spawn_entity<T: Bundle>(mut self, bundle: T) -> Self {
+        //&'b mut EntityCommands<'_, '_> {
+        let entity_commands: EntityCommands<'_> = self.commands.spawn(bundle);
         self
     }
 
     pub fn with_children<F>(mut self, f: F) -> Self
     where
         F: FnOnce(CommandBuilder<'w, 's>),
-    {/*
+    {
+        /*
         self.commands.with_children(|parent| {
             let child_builder = CommandBuilder::new(parent);
             f(child_builder);
@@ -335,8 +322,8 @@ impl<'w, 's> CommandBuilder<'w, 's> {
          */
         self
     }
-    
-    /* 
+
+    /*
     pub fn with_children(mut self, ) -> Self {//&'b mut EntityCommands<'_, '_> {
         let entity_commands = self.commands.spawn((
             bundle
@@ -344,18 +331,24 @@ impl<'w, 's> CommandBuilder<'w, 's> {
         self
     }*/
 
-    pub fn submit_button(mut self, label: &str, color: Color, on_click: Option<CommandFunc>) -> Self {//&'b mut EntityCommands<'_, '_> {
+    pub fn submit_button(
+        mut self,
+        label: &str,
+        color: Color,
+        on_click: Option<CommandFunc>,
+    ) -> Self {
+        //&'b mut EntityCommands<'_, '_> {
         let entity_commands = self.commands.spawn((
             // ... your components
         ));
-        
+
         //entity_commands.with_children(|parent| {
-            // ... child components
+        // ... child components
         //});
-        
+
         // Store the created entity with the provided key
         //self.entities.insert(key.to_string(), entity_commands.id());
-        
+
         // Return mutable reference to EntityCommands to allow chaining
         //&mut entity_commands
         self
@@ -363,13 +356,15 @@ impl<'w, 's> CommandBuilder<'w, 's> {
 }
 
 #[cfg(feature = "bevy_std")]
-pub fn process_reactive_lists(mut commands: Commands, reactive_lists: Query<(Entity, Ref<ReactiveListView>)>) {
-    use bevy_reflect::List;
+pub fn process_reactive_lists(
+    mut commands: Commands,
+    reactive_lists: Query<(Entity, Ref<ReactiveListView>)>,
+) {
     use bevy::ecs::system::command;
+    use bevy_reflect::List;
 
     for (entity, list) in reactive_lists {
         if list.is_added() || list.is_changed() {
-
             let list_type = if let Some(type_info) = list.value.get_represented_type_info() {
                 type_info.type_path_table().short_path()
             } else {
@@ -378,7 +373,11 @@ pub fn process_reactive_lists(mut commands: Commands, reactive_lists: Query<(Ent
                 DynamicList::short_type_path()
             };
 
-            debug!("List of type {} changed! List length: {}", list_type, list.value.len());
+            debug!(
+                "List of type {} changed! List length: {}",
+                list_type,
+                list.value.len()
+            );
 
             commands.entity(entity).despawn_related::<Children>();
 
@@ -388,16 +387,23 @@ pub fn process_reactive_lists(mut commands: Commands, reactive_lists: Query<(Ent
                 let element_type = item.reflect_short_type_path().to_owned();
                 let item_value = item.clone_value();
 
-                let child = commands.spawn(ReactiveView { value: Dynamic::new(item) }).id();
+                let child = commands
+                    .spawn(ReactiveView {
+                        value: Dynamic::new(item),
+                    })
+                    .id();
 
                 commands.entity(entity).add_child(child);
 
-                list.create_entity_func.as_ref().unwrap().call(&mut commands, child);
+                list.create_entity_func
+                    .as_ref()
+                    .unwrap()
+                    .call(&mut commands, child);
 
                 let system_id = commands.register_system(move |world: &mut World| {
-                    use std::collections::HashSet;
                     use bevy::ecs::system::SystemState;
                     use nameof::{name_of, name_of_type};
+                    use std::collections::HashSet;
 
                     let mut system_state: SystemState<(Res<DBConfig>, ReactivesQuery)> =
                         SystemState::new(world);
@@ -421,8 +427,7 @@ pub fn process_reactive_lists(mut commands: Commands, reactive_lists: Query<(Ent
                     result.map_err(|err| {
                         info!(
                             "Failed to apply list element of type: {}. {}",
-                            element_type,
-                            err
+                            element_type, err
                         );
 
                         anyhow!(
@@ -450,7 +455,9 @@ pub fn process_reactive_maps(
     use bevy::reflect::{DynamicMap, Map};
     for (entity, map, children) in &maps {
         // A deserialized/unconfigured view has no renderer yet.
-        let Some(render) = map.create_entity_func.as_ref() else { continue };
+        let Some(render) = map.create_entity_func.as_ref() else {
+            continue;
+        };
         let mut retained = DynamicMap::default();
         if let Some(children) = children {
             for child in children.iter() {
@@ -469,11 +476,19 @@ pub fn process_reactive_maps(
             }
         }
         for (key, value) in map.value.iter() {
-            if retained.get(key).is_some() { continue; }
-            let child = commands.spawn((
-                ReactiveMapKey { value: Dynamic::new(key) },
-                ReactiveView { value: Dynamic::new(value) },
-            )).id();
+            if retained.get(key).is_some() {
+                continue;
+            }
+            let child = commands
+                .spawn((
+                    ReactiveMapKey {
+                        value: Dynamic::new(key),
+                    },
+                    ReactiveView {
+                        value: Dynamic::new(value),
+                    },
+                ))
+                .id();
             commands.entity(entity).add_child(child);
             render.call(&mut commands, child);
         }
@@ -481,9 +496,18 @@ pub fn process_reactive_maps(
 }
 
 #[cfg(feature = "bevy_std")]
-pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &BWindow)>,
-    mut responsive_element_query: Query<(Entity, &mut Control, Option<&WidthLessThan>, Option<&HideOnHeightLessThan>), Without<BWindow>>) {
-
+pub fn process_responsive_elements(
+    window_query: Query<(Entity, Ref<Control>, &BWindow)>,
+    mut responsive_element_query: Query<
+        (
+            Entity,
+            &mut Control,
+            Option<&WidthLessThan>,
+            Option<&HideOnHeightLessThan>,
+        ),
+        Without<BWindow>,
+    >,
+) {
     let mut changed_size: Option<Vec2> = None;
     for (entity, control, window) in window_query.iter() {
         if control.is_changed() {
@@ -493,7 +517,9 @@ pub fn process_responsive_elements(window_query: Query<(Entity, Ref<Control>, &B
 
     if let Some(changed_size) = changed_size {
         //info!("Window changed size: {:?}", changed_size);
-        for (entity, mut control, width_less_than, height_less_than) in responsive_element_query.iter_mut() {
+        for (entity, mut control, width_less_than, height_less_than) in
+            responsive_element_query.iter_mut()
+        {
             if let Some(width_less_than) = width_less_than {
                 if width_less_than.is_visible {
                     control.is_visible = changed_size.x <= width_less_than.width;

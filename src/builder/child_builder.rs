@@ -5,15 +5,13 @@ use bevy::utils::default;
 use crate::prelude::*;
 
 pub trait ChildTrait<'a> {
-    fn child(&'a mut self)  -> EntityBuilder<'a>;
+    fn child(&'a mut self) -> EntityBuilder<'a>;
 }
 
 impl<'a> ChildTrait<'a> for ChildSpawnerCommands<'_> {
     fn child(&'a mut self) -> EntityBuilder<'a> {
-        let entity_commands: EntityCommands<'_> = self.spawn(Control {
-            ..default()
-        });
-        
+        let entity_commands: EntityCommands<'_> = self.spawn(Control { ..default() });
+
         // Your implementation here
         EntityBuilder::new(entity_commands)
     }
@@ -25,7 +23,6 @@ pub trait EntityCommandsChildTrait<'a> {
 }
 
 impl<'a> EntityCommandsChildTrait<'a> for EntityCommands<'a> {
-    
     fn builder(self) -> EntityBuilder<'a> {
         // Your implementation here
         //let id = self.id();
@@ -55,12 +52,12 @@ impl<'a> EntityCommandsChildTrait<'a> for EntityCommands<'a> {
     */
 }
 pub trait CommandsChildTrait<'w, 's, 'a> {
-    fn child(&'a mut self)  -> EntityBuilder<'a>;
+    fn child(&'a mut self) -> EntityBuilder<'a>;
 }
 
 impl<'w, 's, 'a> CommandsChildTrait<'w, 's, 'a> for Commands<'w, 's> {
     fn child(&'a mut self) -> EntityBuilder<'a> {
-        let commands: EntityCommands<'_> = self.spawn(Control {..default()});
+        let commands: EntityCommands<'_> = self.spawn(Control { ..default() });
         EntityBuilder::new(commands)
     }
 }
@@ -71,8 +68,8 @@ pub struct EntityChildSpawnerCommands<'a> {
 
 impl<'a> EntityChildSpawnerCommands<'a> {
     pub fn new(child_builder: &'a mut ChildSpawnerCommands<'a>) -> Self {
-        Self { 
-            child_builder: child_builder, 
+        Self {
+            child_builder: child_builder,
             //custom_steps: Vec::new(),
         }
     }

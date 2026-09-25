@@ -1,8 +1,11 @@
-use bevy::{prelude::*, reflect::{DynamicList, List, DynamicMap, Map}};
-use serde::{Deserialize, Serialize};
 use crate::prelude::*;
-use smart_clone::SmartClone;
+use bevy::{
+    prelude::*,
+    reflect::{DynamicList, DynamicMap, List, Map},
+};
 use derive_more::Debug;
+use serde::{Deserialize, Serialize};
+use smart_clone::SmartClone;
 
 #[bevy_trait_query::queryable]
 #[reflect_trait]
@@ -13,7 +16,7 @@ pub trait Bindable {
 
 #[derive(Component)]
 pub struct AutoBindable {
-    pub value: Box<dyn Reflect>
+    pub value: Box<dyn Reflect>,
 }
 
 /// An owned presentation value of any reflected kind (including structs and collections).

@@ -8,18 +8,18 @@ use futures_util::Stream;
 //use futures_util::stream::BoxStream;
 //use futures_util::sink::Drain;
 
-use uuid::Uuid;
+use crate::prelude::*;
+use anyhow::Result;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
-use std::task::{Poll, Context, Waker};
-use anyhow::Result;
-use crate::prelude::*;
+use std::task::{Context, Poll, Waker};
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct Multiplexer {
-    channels: Arc<RwLock<HashMap<Id, MultiplexerChannel>>>
+    channels: Arc<RwLock<HashMap<Id, MultiplexerChannel>>>,
 }
 
 #[derive(Default)]
@@ -99,7 +99,7 @@ impl MultiplexerChannel {
 pub struct Channel {
     id: Id,
     last_ev: usize,
-    multiplexer: Multiplexer
+    multiplexer: Multiplexer,
 }
 
 impl Clone for Channel {
@@ -126,19 +126,25 @@ impl Drop for Channel {
 }
 
 impl Channel {
-
     pub fn get_id(&self) -> Id {
         self.id.clone()
     }
 
-    pub fn send_ev<T>(&self, recipient_id: Id, ev: T) where T: Struct {
-        self.multiplexer.send(recipient_id, NetworkEvent::new(self.id.clone(), ev));
+    pub fn send_ev<T>(&self, recipient_id: Id, ev: T)
+    where
+        T: Struct,
+    {
+        self.multiplexer
+            .send(recipient_id, NetworkEvent::new(self.id.clone(), ev));
     }
 
     pub fn try_recv(&mut self) -> Option<NetworkEvent> {
         let mut channels = self.multiplexer.channels.write().unwrap();
 
-        let mut channel = channels.get_mut(&self.id.clone()).expect(&format!("Failed to get peer event buffer for ID {:#}", self.id));
+        let mut channel = channels.get_mut(&self.id.clone()).expect(&format!(
+            "Failed to get peer event buffer for ID {:#}",
+            self.id
+        ));
 
         //dbg!(self.peer_id.clone());
         if let Some(ev) = channel.recv_ev(&mut self.last_ev) {
@@ -148,7 +154,7 @@ impl Channel {
         None
         /*
         let sender = self.map.read().unwrap().get(&recv_id).unwrap().to_owned();
-        
+
         let ev = sender.subscribe().try_recv();
         if let Ok(ev) = ev {
             return Some(ev);
@@ -166,17 +172,20 @@ impl Stream for Channel {
         // Acquire the lock on the underlying multiplexer channel.
         let multiplxer = self.multiplexer.clone();
         let mut channels = multiplxer.channels.write().unwrap();
-        let ch = channels.get_mut(&self.id).expect(&format!("Failed to get peer event buffer for ID {:#}", self.id));
-        
+        let ch = channels.get_mut(&self.id).expect(&format!(
+            "Failed to get peer event buffer for ID {:#}",
+            self.id
+        ));
+
         // First check: try to receive an event.
         //info!("Poll receiving...");
         if let Some(ev) = ch.recv_ev(&mut self.last_ev) {
             return Poll::Ready(Some(ev));
         }
-        
+
         // No event yet: register the waker.
         ch.waker = Some(cx.waker().clone());
-        
+
         /*
         // Double-check: an event could have been sent right after the previous check.
         info!("Waker woke up, receiving...");
@@ -186,7 +195,7 @@ impl Stream for Channel {
             ch.waker = None;
             return Poll::Ready(Some(ev));
         } */
-        
+
         Poll::Pending
     }
 }
@@ -195,7 +204,7 @@ impl Multiplexer {
     pub fn new() -> Self {
         Self {
             //map: Arc::new(RwLock::new(HashMap::new())),
-            channels: Arc::new(RwLock::new(HashMap::new()))
+            channels: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -209,10 +218,12 @@ impl Multiplexer {
 
     pub fn get_channel(&self, peer_id: Id) -> Channel {
         let mut channels = self.channels.write().unwrap();
-        let mut channel = channels.entry(peer_id.clone()).or_insert_with(|| MultiplexerChannel::new(peer_id.clone()));
+        let mut channel = channels
+            .entry(peer_id.clone())
+            .or_insert_with(|| MultiplexerChannel::new(peer_id.clone()));
         channel.num_receivers += 1;
         //info!("Added receiver for {}.", peer_id);
-        
+
         // Each receiver keeps its own read position. If the peer rebinds or the
         // channel is re-established after a momentary disconnect, we still need to
         // drain the queued backlog rather than starting at the channel's current
@@ -220,7 +231,7 @@ impl Multiplexer {
         Channel {
             last_ev: 0,
             id: peer_id,
-            multiplexer: self.clone()
+            multiplexer: self.clone(),
         }
     }
 
@@ -232,15 +243,15 @@ impl Multiplexer {
         let mut buffer = buffer.get_mut(&peer_id).unwrap();
         if let Some(index) = buffer.iter().position(|x| {
             if let ReflectRef::Enum(enum_ref) = x.ev.as_reflect().reflect_ref() {
-                
+
                 let type_registry = TypeRegistry::default();
                 if let TypeInfo::Enum(enum_info) = type_registry.get_type_info(enum_ref.type_id()).unwrap() {
                     enum_info.variant_at(index)
                 }
-                
-                
+
+
                 //if let VariantType::Tuple(struct_type) = enum_ref.variant()
-                    
+
                 //}
             }
 
@@ -248,7 +259,7 @@ impl Multiplexer {
             //if let TypeInfo::Enum(enum_info) = type_registry.get_type_info(x.ev.type_id()) {
             //    enum_info.
             //}
-           
+
             if x.ev.type_id() == T::type_info().type_id() {
 
             }
@@ -257,7 +268,7 @@ impl Multiplexer {
             vec.remove(index);
         }
         buffer.pop()
-        
+
     }
     */
 
@@ -272,19 +283,27 @@ impl Multiplexer {
         //sender.send(ev.clone()).unwrap();
 
         let mut channels = self.channels.write().unwrap();
-        channels.entry(recipient_id.clone()).or_insert_with(move || MultiplexerChannel::new(recipient_id)).send_ev(ev);
+        channels
+            .entry(recipient_id.clone())
+            .or_insert_with(move || MultiplexerChannel::new(recipient_id))
+            .send_ev(ev);
     }
 
-    pub fn send_ev<T>(&self, sender_id: Id, receiver_id: Id, ev: T) where T: Struct {
+    pub fn send_ev<T>(&self, sender_id: Id, receiver_id: Id, ev: T)
+    where
+        T: Struct,
+    {
         self.send(receiver_id, NetworkEvent::new(sender_id, ev));
     }
 
-    pub async fn recv_ev<T>(&self, receiver_id: Id, sender_id: Id) -> Result<T> where T: Reflect + FromReflect + Typed {
+    pub async fn recv_ev<T>(&self, receiver_id: Id, sender_id: Id) -> Result<T>
+    where
+        T: Reflect + FromReflect + Typed,
+    {
         let mut rx = self.get_channel(receiver_id);
         loop {
             if let Some(network_ev) = rx.try_recv() {
                 if network_ev.peer_id == sender_id {
-
                     if let Some(ev) = network_ev.get_ev::<T>() {
                         return Ok(ev);
                     }
@@ -298,11 +317,11 @@ impl Multiplexer {
                             if _struct_info.type_path() == s.reflect_type_path() {
 
                                 let mut t = T::from_reflect(s).unwrap();
-                    
+
                                 //let mut t = T::default();
                                 //t.apply(s);
-                                 
-                                return Ok(t); 
+
+                                return Ok(t);
                             }
                         }
                     }
@@ -326,14 +345,23 @@ mod tests {
 
         multiplexer.send(
             recipient_id.clone(),
-            NetworkEvent::new(sender_id.clone(), TrackRecordEvent { entity_id: record_id.clone() }),
+            NetworkEvent::new(
+                sender_id.clone(),
+                TrackRecordEvent {
+                    entity_id: record_id.clone(),
+                },
+            ),
         );
 
         let mut rx = multiplexer.get_channel(recipient_id.clone());
-        let ev = rx.try_recv().expect("queued event should still be available");
+        let ev = rx
+            .try_recv()
+            .expect("queued event should still be available");
 
         assert_eq!(ev.peer_id, sender_id);
-        let tracked = ev.get_ev::<TrackRecordEvent>().expect("network event payload should deserialize");
+        let tracked = ev
+            .get_ev::<TrackRecordEvent>()
+            .expect("network event payload should deserialize");
         assert_eq!(tracked.entity_id, record_id);
         assert!(rx.try_recv().is_none());
     }
@@ -344,7 +372,12 @@ mod tests {
         let sender_id = Id::new();
         let record_id = Id::new();
 
-        channel.send_ev(NetworkEvent::new(sender_id.clone(), TrackRecordEvent { entity_id: record_id.clone() }));
+        channel.send_ev(NetworkEvent::new(
+            sender_id.clone(),
+            TrackRecordEvent {
+                entity_id: record_id.clone(),
+            },
+        ));
 
         let mut last_ev = 2usize;
         assert!(channel.recv_ev(&mut last_ev).is_none());

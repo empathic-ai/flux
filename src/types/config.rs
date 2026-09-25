@@ -9,7 +9,7 @@ const LOCALHOST: &str = "localhost";
 pub struct FluxConfig {
     host_name: String,
     server_port: Option<String>,
-    is_localhost: bool
+    is_localhost: bool,
 }
 
 impl FluxConfig {
@@ -17,7 +17,7 @@ impl FluxConfig {
         Self {
             host_name,
             server_port,
-            is_localhost
+            is_localhost,
         }
     }
 
@@ -67,7 +67,11 @@ impl FluxConfig {
 
     pub fn get_localhost_api_url(&self) -> String {
         if let Some(server_port) = self.get_server_port() {
-            format!("http://{}:{}", self.get_localhost_api_hostname(), server_port)
+            format!(
+                "http://{}:{}",
+                self.get_localhost_api_hostname(),
+                server_port
+            )
         } else {
             format!("http://{}", self.get_localhost_api_hostname())
         }
@@ -95,5 +99,3 @@ impl FluxConfig {
         return format!("dev-api.{}", hostname);
     }
 }
-
-

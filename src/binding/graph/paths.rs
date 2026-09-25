@@ -72,7 +72,10 @@ pub(crate) fn queue_builder_binding(
     commands.queue(move |world: &mut World| -> bevy::prelude::Result {
         let target = target?;
         let owner = target.entity;
-        source.into_binding_expr().prepare(target)?.install(world, owner)?;
+        source
+            .into_binding_expr()
+            .prepare(target)?
+            .install(world, owner)?;
         Ok(())
     });
 }
@@ -129,40 +132,66 @@ impl<T: ?Sized> TypedBindingPath<T> {
     /// must ensure the supplied path matches the projection.
     #[doc(hidden)]
     pub fn from_projection<Root>(path: BindingPath, _: impl FnOnce(&Root) -> &T) -> Self {
-        Self { path, marker: std::marker::PhantomData }
+        Self {
+            path,
+            marker: std::marker::PhantomData,
+        }
     }
 
-    pub fn erase(self) -> BindingPath { self.path }
+    pub fn erase(self) -> BindingPath {
+        self.path
+    }
 }
 impl<T: ?Sized> Clone for TypedBindingPath<T> {
-    fn clone(&self) -> Self { Self { path: self.path.clone(), marker: std::marker::PhantomData } }
+    fn clone(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            marker: std::marker::PhantomData,
+        }
+    }
 }
 impl<T: ?Sized> std::fmt::Debug for TypedBindingPath<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.path.fmt(f) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.path.fmt(f)
+    }
 }
 impl<T: ?Sized> PartialEq for TypedBindingPath<T> {
-    fn eq(&self, other: &Self) -> bool { self.path == other.path }
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
 }
 impl<T: ?Sized> Eq for TypedBindingPath<T> {}
 impl<T: ?Sized> std::hash::Hash for TypedBindingPath<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) { std::hash::Hash::hash(&self.path, state); }
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.path, state);
+    }
 }
 impl<T: ?Sized> PartialEq<BindingPath> for TypedBindingPath<T> {
-    fn eq(&self, other: &BindingPath) -> bool { self.path == *other }
+    fn eq(&self, other: &BindingPath) -> bool {
+        self.path == *other
+    }
 }
 impl<T: ?Sized> PartialEq<TypedBindingPath<T>> for BindingPath {
-    fn eq(&self, other: &TypedBindingPath<T>) -> bool { *self == other.path }
+    fn eq(&self, other: &TypedBindingPath<T>) -> bool {
+        *self == other.path
+    }
 }
 impl<T> IntoBindingPath for TypedBindingPath<T> {
     type Value = T;
-    fn into_binding_path(self) -> Result<BindingPath> { Ok(self.erase()) }
+    fn into_binding_path(self) -> Result<BindingPath> {
+        Ok(self.erase())
+    }
 }
 impl<T> IntoBindingPath for Result<TypedBindingPath<T>> {
     type Value = T;
-    fn into_binding_path(self) -> Result<BindingPath> { self.map(TypedBindingPath::erase) }
+    fn into_binding_path(self) -> Result<BindingPath> {
+        self.map(TypedBindingPath::erase)
+    }
 }
 impl<T: ?Sized> From<TypedBindingPath<T>> for BindingPath {
-    fn from(path: TypedBindingPath<T>) -> Self { path.erase() }
+    fn from(path: TypedBindingPath<T>) -> Self {
+        path.erase()
+    }
 }
 
 /// A reflected component/property location without an entity, carrying the
@@ -179,10 +208,7 @@ pub struct TypedComponentBindingPath<T: ?Sized> {
 impl<T: ?Sized> TypedComponentBindingPath<T> {
     /// Macro support. The projection is type-checked, never executed.
     #[doc(hidden)]
-    pub fn from_projection<Root>(
-        path: ComponentBindingPath,
-        _: impl FnOnce(&Root) -> &T,
-    ) -> Self {
+    pub fn from_projection<Root>(path: ComponentBindingPath, _: impl FnOnce(&Root) -> &T) -> Self {
         Self {
             path,
             marker: std::marker::PhantomData,
@@ -265,7 +291,11 @@ impl<T: ?Sized> From<TypedComponentBindingPath<T>> for ComponentBindingPath {
 }
 
 impl BindingPath {
-    pub(crate) fn write_value(self, world: &mut World, value: Box<dyn PartialReflect>) -> Result<()> {
+    pub(crate) fn write_value(
+        self,
+        world: &mut World,
+        value: Box<dyn PartialReflect>,
+    ) -> Result<()> {
         let mut writer = self.writer();
         writer.initialize(world);
         writer.check_change_tick(world.read_change_tick());

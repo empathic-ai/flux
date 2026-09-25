@@ -71,32 +71,28 @@ trait QuerySys<T, SM> = SystemParamFunction<SM> + 'static
 where
     T: Serialize + DeserializeOwned + Send + 'static,
     SM: Send + Sync + 'static,
-    for<'a> <Self as SystemParamFunction<SM>>::In:
-        SystemInput<Inner<'a> = Vec<(Id, T)>>,
+    for<'a> <Self as SystemParamFunction<SM>>::In: SystemInput<Inner<'a> = Vec<(Id, T)>>,
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
 trait QueryOneSys<T, SM> = SystemParamFunction<SM> + 'static
 where
     T: Serialize + DeserializeOwned + Send + 'static,
     SM: Send + Sync + 'static,
-    for<'a> <Self as SystemParamFunction<SM>>::In:
-        SystemInput<Inner<'a> = Option<(Id, T)>>,
+    for<'a> <Self as SystemParamFunction<SM>>::In: SystemInput<Inner<'a> = Option<(Id, T)>>,
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
 trait EcsQuerySys<T, SM> = SystemParamFunction<SM> + 'static
 where
     T: FluxRecord,
     SM: Send + Sync + 'static,
-    for<'a> <Self as SystemParamFunction<SM>>::In:
-        SystemInput<Inner<'a> = Vec<(Id, T)>>,
+    for<'a> <Self as SystemParamFunction<SM>>::In: SystemInput<Inner<'a> = Vec<(Id, T)>>,
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
 trait EcsQueryOneSys<T, SM> = SystemParamFunction<SM> + 'static
 where
     T: FluxRecord,
     SM: Send + Sync + 'static,
-    for<'a> <Self as SystemParamFunction<SM>>::In:
-        SystemInput<Inner<'a> = Option<(Id, T)>>,
+    for<'a> <Self as SystemParamFunction<SM>>::In: SystemInput<Inner<'a> = Option<(Id, T)>>,
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
 pub struct UpsertRecordWithCallback<T, S, SM>
@@ -175,15 +171,23 @@ pub trait AsyncDbCommandsExt {
         S: GetRecordsSys<T, O, SM>;
 
     #[cfg(feature = "surrealdb")]
-    async fn db_query_raw<T, V, S, SM>(&self, statement: impl Into<String>, variables: V, system: S)
-    where
+    async fn db_query_raw<T, V, S, SM>(
+        &self,
+        statement: impl Into<String>,
+        variables: V,
+        system: S,
+    ) where
         T: Serialize + DeserializeOwned + Send + 'static,
         V: IntoVariables + Send + 'static,
         S: QuerySys<T, SM>;
 
     #[cfg(feature = "surrealdb")]
-    async fn db_query_one_raw<T, V, S, SM>(&self, statement: impl Into<String>, variables: V, system: S)
-    where
+    async fn db_query_one_raw<T, V, S, SM>(
+        &self,
+        statement: impl Into<String>,
+        variables: V,
+        system: S,
+    ) where
         T: Serialize + DeserializeOwned + Send + 'static,
         V: IntoVariables + Send + 'static,
         S: QueryOneSys<T, SM>;
@@ -194,26 +198,28 @@ impl AsyncDbCommandsExt for AsyncWorld {
     where
         T: FluxRecord,
     {
-        
         let type_name = T::short_type_path();
 
         let mut is_record = false;
 
-                
-        #[cfg(feature = "surrealdb")] {
+        #[cfg(feature = "surrealdb")]
+        {
             let (output_tx, output_rx) = async_channel::bounded(1);
 
             let _record = record.clone();
 
             self.apply(move |world: &mut World| {
-                let mut system_state: SystemState<(Query<(Mut<T>, &DBRecord)>, Tasks, Res<DBConfig>)> = SystemState::new(world);
+                let mut system_state: SystemState<(
+                    Query<(Mut<T>, &DBRecord)>,
+                    Tasks,
+                    Res<DBConfig>,
+                )> = SystemState::new(world);
                 {
                     let (mut query, tasks, db_config) = system_state.get_mut(world);
-                        
+
                     let db = db_config.db.clone();
 
                     tasks.spawn_auto(async move |_| {
-
                         let result: Option<SerdeWrapper<T>> = db
                             .upsert((type_name.to_string(), id.to_string()))
                             .content(SerdeWrapper(_record))
@@ -224,17 +230,19 @@ impl AsyncDbCommandsExt for AsyncWorld {
                     });
                 }
                 system_state.apply(world);
-            }).await;
+            })
+            .await;
 
             output_rx.recv().await;
         }
 
         self.apply(move |world: &mut World| {
-            let mut system_state: SystemState<(Query<(Mut<T>, &DBRecord)>, Tasks, Res<DBConfig>)> = SystemState::new(world);
+            let mut system_state: SystemState<(Query<(Mut<T>, &DBRecord)>, Tasks, Res<DBConfig>)> =
+                SystemState::new(world);
             {
                 {
                     let (mut query, tasks, db_config) = system_state.get_mut(world);
-                    
+
                     if let Some((mut _record, _)) =
                         query.iter_mut().find(|(_, db_rec)| db_rec.id == id)
                     {
@@ -253,7 +261,8 @@ impl AsyncDbCommandsExt for AsyncWorld {
             if !is_record {
                 spawn_record(world, id, record);
             }
-        }).await;
+        })
+        .await;
 
         //self.apply(UpsertRecord::new(id, record)).await;
         id
@@ -354,8 +363,12 @@ impl AsyncDbCommandsExt for AsyncWorld {
     }
 
     #[cfg(feature = "surrealdb")]
-    async fn db_query_raw<T, V, S, SM>(&self, statement: impl Into<String>, variables: V, mut system: S)
-    where
+    async fn db_query_raw<T, V, S, SM>(
+        &self,
+        statement: impl Into<String>,
+        variables: V,
+        mut system: S,
+    ) where
         T: Serialize + DeserializeOwned + Send + 'static,
         V: IntoVariables + Send + 'static,
         S: QuerySys<T, SM>,
@@ -466,7 +479,8 @@ async fn upsert_record<T, O, S, SM>(
                     let query = system_state.get_mut(world);
                     query
                         .iter()
-                        .find(|(_, _, db_rec)| db_rec.id == id).is_some()
+                        .find(|(_, _, db_rec)| db_rec.id == id)
+                        .is_some()
                 };
 
                 if !is_record {
@@ -513,9 +527,7 @@ async fn get_record<T, O, S, SM>(
                     let mut system_state: SystemState<Query<(Entity, Mut<T>, &DBRecord)>> =
                         SystemState::new(world);
                     let query = system_state.get_mut(world);
-                    query
-                        .iter()
-                        .any(|(_, _, db_rec)| db_rec.id == id)
+                    query.iter().any(|(_, _, db_rec)| db_rec.id == id)
                 };
 
                 if !is_record {
@@ -662,20 +674,22 @@ fn is_missing_table(error: &surrealdb::types::Error) -> bool {
 }
 
 #[cfg(feature = "surrealdb")]
-pub async fn get_records<T: FluxRecord>(
-    db: Arc<Surreal<Any>>,
-) -> anyhow::Result<Vec<(Id, T)>> {
+pub async fn get_records<T: FluxRecord>(db: Arc<Surreal<Any>>) -> anyhow::Result<Vec<(Id, T)>> {
     use surrealdb::types::SurrealValue;
 
-    let o: Vec<SerdeWrapper<TypedRecord<T>>> = match db.select(T::short_type_path()).await
-    {
+    let o: Vec<SerdeWrapper<TypedRecord<T>>> = match db.select(T::short_type_path()).await {
         Ok(records) => records,
         Err(error) if is_missing_table(&error) => Vec::new(),
         Err(error) => return Err(error.into()),
     };
     let o = o
         .iter()
-        .map(|record| (Id::from(&record.0.id.key.clone().into_value().as_string().unwrap()), record.0.record.clone()))
+        .map(|record| {
+            (
+                Id::from(&record.0.id.key.clone().into_value().as_string().unwrap()),
+                record.0.record.clone(),
+            )
+        })
         .collect();
     Ok(o)
 }
@@ -695,11 +709,8 @@ pub trait DbCommandsExt {
     ///
     /// The handler receives `In<Vec<(Id, T)>>` and may declare any
     /// additional Bevy system parameters after that input.
-    fn query<T, V, P, F, S, SM>(
-        &mut self,
-        expression: QueryExpr<T, QueryMany, V, P, F>,
-        system: S,
-    ) where
+    fn query<T, V, P, F, S, SM>(&mut self, expression: QueryExpr<T, QueryMany, V, P, F>, system: S)
+    where
         T: FluxRecord + Send + 'static,
         V: Send + 'static,
         P: Fn(&T) -> bool + Send + 'static,
@@ -766,8 +777,7 @@ pub trait DbCommandsExt {
         statement: impl Into<String>,
         variables: V,
         system: S,
-    )
-    where
+    ) where
         T: Serialize + DeserializeOwned + Send + 'static,
         V: IntoVariables + Send + 'static,
         S: QueryOneSys<T, SM>;
@@ -897,7 +907,8 @@ impl<'w, 's> DbCommandsExt for Commands<'w, 's> {
                 let mut records = Vec::new();
 
                 if !limit.is_some_and(|limit| limit == 0) {
-                    for (record, db_record) in query.iter().filter(|(record, _)| predicate(record)) {
+                    for (record, db_record) in query.iter().filter(|(record, _)| predicate(record))
+                    {
                         records.push((db_record.id.clone(), record.clone()));
                         if limit.is_some_and(|limit| records.len() >= limit) {
                             break;
@@ -940,7 +951,8 @@ impl<'w, 's> DbCommandsExt for Commands<'w, 's> {
                 let mut records = Vec::new();
 
                 if max_matches > 0 {
-                    for (record, db_record) in query.iter().filter(|(record, _)| predicate(record)) {
+                    for (record, db_record) in query.iter().filter(|(record, _)| predicate(record))
+                    {
                         records.push((db_record.id.clone(), record.clone()));
                         if records.len() >= max_matches {
                             break;
@@ -1004,8 +1016,12 @@ impl<'w, 's> DbCommandsExt for Commands<'w, 's> {
     }
 
     #[cfg(feature = "surrealdb")]
-    fn db_query_raw<T, V, S, SM>(&mut self, statement: impl Into<String>, variables: V, mut system: S)
-    where
+    fn db_query_raw<T, V, S, SM>(
+        &mut self,
+        statement: impl Into<String>,
+        variables: V,
+        mut system: S,
+    ) where
         T: Serialize + DeserializeOwned + Send + 'static,
         V: IntoVariables + Send + 'static,
         S: QuerySys<T, SM>,
@@ -1103,7 +1119,11 @@ fn spawn_record<T>(world: &mut World, id: Id, record: T)
 where
     T: Component<Mutability = Mutable> + Reflect + Typed + DeserializeOwned,
 {
-    info!("Spawning record of type {} with ID: {:#}", T::short_type_path(), id);
+    info!(
+        "Spawning record of type {} with ID: {:#}",
+        T::short_type_path(),
+        id
+    );
 
     world.spawn((DBRecord { id }, record));
 }

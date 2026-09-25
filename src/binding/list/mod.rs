@@ -15,7 +15,7 @@ pub struct AutoBindableList {
     pub property_name: String,
     #[reflect(ignore)]
     //#[serde(skip)]
-    pub create_entity: Option<EntityFunc>
+    pub create_entity: Option<EntityFunc>,
 }
 
 impl BindableList for AutoBindableList {

@@ -8,21 +8,21 @@ pub use builder::*;
 pub use child_builder::*;
 pub use entity_builder::*;
 
-use bevy::prelude::*;
-use bevy::reflect::{List, DynamicList, DynamicStruct};
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
 use crate::prelude::*;
+use bevy::prelude::*;
+use bevy::reflect::{DynamicList, DynamicStruct, List};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Component, Reflect, Reactive)]
 pub struct ImageTextButton {
     pub image: String,
-    pub label: String
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Component, Reflect, Reactive)]
 pub struct TextButton {
-    pub label: String
+    pub label: String,
 }
 
 // TODO: Either remove or uncomment

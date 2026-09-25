@@ -2,17 +2,17 @@ mod interact_state;
 mod ui_components;
 pub use ui_components::*;
 
-pub use interact_state::*;
 use crate::prelude::*;
-use std::collections::HashMap;
 use bevy::{ecs::system::SystemId, prelude::*};
-use serde::{Serialize, Deserialize};
+pub use interact_state::*;
+use serde::{Deserialize, Serialize};
 use std::clone::Clone;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default, Component)]
 pub struct Slider {
     pub fill_entity: Option<Entity>,
-    pub percent: f32
+    pub percent: f32,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Copy, Reflect, PartialEq, Eq)]
@@ -30,24 +30,22 @@ pub enum Anchor {
 }
 
 #[derive(bevy::prelude::Component)]
-pub struct GoogleLoginButton {
-}
+pub struct GoogleLoginButton {}
 
 #[derive(bevy::prelude::Component, Debug, Default)]
 #[require(Control)]
 pub struct BluetoothButton {
-    pub is_initialized: bool
+    pub is_initialized: bool,
 }
 
 #[derive(bevy::prelude::Component, Debug)]
 pub struct StripePaymentElement {
     pub FormEntity: Entity,
-    pub SubmitEntity: Entity
+    pub SubmitEntity: Entity,
 }
 
 #[derive(bevy::prelude::Component, Debug)]
-pub struct NativeInteraction {
-}
+pub struct NativeInteraction {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
 #[cfg_attr(feature = "bevy_ui", require(Node))]
@@ -79,16 +77,14 @@ pub struct Control {
     pub stretch: bool,
     pub ignore_layout: bool,
     pub use_blur: bool,
-    pub z_index: Option<u32>
+    pub z_index: Option<u32>,
 }
 
 #[derive(Component, Debug, Default)]
-pub struct BWindow {
-}
+pub struct BWindow {}
 
 #[derive(Component, Debug, Default)]
-pub struct Router {
-}
+pub struct Router {}
 
 #[derive(Component, Debug)]
 pub struct Route {
@@ -97,7 +93,7 @@ pub struct Route {
 
 #[derive(Event)]
 pub struct ShowView {
-    pub params: HashMap<String, String>
+    pub params: HashMap<String, String>,
 }
 
 #[derive(Component, Debug)]
@@ -156,7 +152,7 @@ impl Default for Control {
             stretch: false,
             ignore_layout: false,
             use_blur: false,
-            z_index: None
+            z_index: None,
         }
     }
 }
@@ -212,7 +208,7 @@ pub enum InputType {
     #[default]
     Default,
     Password,
-    PhoneNumber
+    PhoneNumber,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Component, Reflect, Reactive)]
@@ -233,7 +229,7 @@ pub struct InputField {
     #[reflect(ignore)]
     #[serde(skip)]
     pub on_unfocused: Option<SystemId>,
-    pub alignment: Anchor
+    pub alignment: Anchor,
 }
 
 impl Default for InputField {
@@ -247,7 +243,7 @@ impl Default for InputField {
             on_submitted: None,
             on_focused: None,
             on_unfocused: None,
-            alignment: Anchor::MiddleLeft
+            alignment: Anchor::MiddleLeft,
         }
     }
 }
@@ -305,7 +301,7 @@ impl Default for ImageRect {
             aspect_ratio: None,
             is_nine_slice: false,
             border_image_slice: Vec4::ZERO,
-            border_image_width: Vec4::ZERO
+            border_image_width: Vec4::ZERO,
         }
     }
 }
@@ -332,7 +328,7 @@ pub struct TextLabel {
     pub is_shadow: bool,
     pub is_3d: bool,
     pub font_weight: f32,
-    pub line_height: Option<f32>
+    pub line_height: Option<f32>,
 }
 
 impl Default for TextLabel {
@@ -349,7 +345,7 @@ impl Default for TextLabel {
             is_shadow: false,
             is_3d: false,
             font_weight: 400.0,
-            line_height: None
+            line_height: None,
         }
     }
 }

@@ -1,13 +1,12 @@
-use bevy::prelude::*;
 use crate::prelude::*;
+use bevy::prelude::*;
 
 #[derive(Component, Clone, Default, Reflect)]
 pub struct InteractState {
     //pub image: String,
     pub is_hovering: bool,
     pub is_pressing: bool,
-    pub is_focused: bool
-    //pub is_right_click: bool
+    pub is_focused: bool, //pub is_right_click: bool
 }
 
 impl Bindable for InteractState {

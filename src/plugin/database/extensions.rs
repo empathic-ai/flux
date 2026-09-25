@@ -62,7 +62,10 @@ impl DBConfig {
     }
 
     pub fn get_id(&self, entity: Entity) -> Id {
-        self.entity_mappings.get(&entity).cloned().expect(&format!("Failed to get ID for entity: {entity}"))
+        self.entity_mappings
+            .get(&entity)
+            .cloned()
+            .expect(&format!("Failed to get ID for entity: {entity}"))
     }
 
     pub fn insert_entity(&mut self, id: &Id, entity: Entity) -> Entity {
@@ -310,10 +313,7 @@ pub async fn upsert_record<T: FluxRecord>(
 }
 
 #[cfg(feature = "surrealdb")]
-pub async fn get_record<T: FluxRecord>(
-    db: &Surreal<Any>,
-    id: Id,
-) -> anyhow::Result<Option<T>> {
+pub async fn get_record<T: FluxRecord>(db: &Surreal<Any>, id: Id) -> anyhow::Result<Option<T>> {
     use surrealdb::types::SerdeWrapper;
 
     let o: Option<SerdeWrapper<T>> = db
@@ -326,7 +326,7 @@ pub async fn get_record<T: FluxRecord>(
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TypedRecord<T>
 where
-    T: Serialize
+    T: Serialize,
 {
     pub id: surrealdb::types::RecordId,
     #[serde(flatten)]
@@ -366,7 +366,9 @@ impl FluxRegisterExt for App {
 
     fn add_record_with_policy<T: FluxRecord>(&mut self, policy: RecordPolicy) -> &mut Self {
         self.add_record::<T>();
-        self.world_mut().resource_mut::<RecordPolicies>().set::<T>(policy);
+        self.world_mut()
+            .resource_mut::<RecordPolicies>()
+            .set::<T>(policy);
         self
     }
 
@@ -417,28 +419,52 @@ fn handle_db_events<T: FluxRecord>(
     for ev in db_request_evs.read() {
         let id = ev.db_record_id;
         let peer_id = ev.peer_id;
-        if !policy.can_read(id, peers.principal(peer_id)) { continue; }
-        commands.try_get_record(id, move |record: InOption<T>, config: Res<Session>,
-            peers: Res<AuthenticatedRecordPeers>, policies: Res<RecordPolicies>| {
-            // Recheck at send time: a login may have changed while the DB read was pending.
-            if !policies.get::<T>().can_read(id, peers.principal(peer_id)) { return; }
-            if let Some(record) = record.get() {
-                
-                info!("Sending {:#}.{} to peer {:#}.", id, T::short_type_path().to_string(), peer_id);
+        if !policy.can_read(id, peers.principal(peer_id)) {
+            continue;
+        }
+        commands.try_get_record(
+            id,
+            move |record: InOption<T>,
+                  config: Res<Session>,
+                  peers: Res<AuthenticatedRecordPeers>,
+                  policies: Res<RecordPolicies>| {
+                // Recheck at send time: a login may have changed while the DB read was pending.
+                if !policies.get::<T>().can_read(id, peers.principal(peer_id)) {
+                    return;
+                }
+                if let Some(record) = record.get() {
+                    info!(
+                        "Sending {:#}.{} to peer {:#}.",
+                        id,
+                        T::short_type_path().to_string(),
+                        peer_id
+                    );
 
-                config.get_multiplexer().send_ev(Id::nil(), peer_id, AddComponentEvent {
-                    entity_id: Some(id), component_type: T::short_type_path().to_string(),
-                    component: record.to_dynamic_struct(),
-                });
-            }
-        });
+                    config.get_multiplexer().send_ev(
+                        Id::nil(),
+                        peer_id,
+                        AddComponentEvent {
+                            entity_id: Some(id),
+                            component_type: T::short_type_path().to_string(),
+                            component: record.to_dynamic_struct(),
+                        },
+                    );
+                }
+            },
+        );
     }
     for ev in db_receive_evs.read() {
-        if ev.component_type != T::short_type_path() { continue; }
+        if ev.component_type != T::short_type_path() {
+            continue;
+        }
         #[cfg(feature = "server")]
-        if !policy.client_writes { continue; }
+        if !policy.client_writes {
+            continue;
+        }
         #[cfg(not(feature = "server"))]
-        if !policy.client_writes && ev.peer_id != Id::nil() { continue; }
+        if !policy.client_writes && ev.peer_id != Id::nil() {
+            continue;
+        }
         if let Some(record) = T::from_dynamic(&ev.component.to_dynamic_struct()) {
             commands.upsert_record(ev.db_record_id, record, |_: InMut<T>| {});
         }
@@ -455,7 +481,9 @@ fn detect_db_changes<T: FluxRecord>(
     session: Res<Session>,
 ) {
     let policy = policies.get::<T>();
-    if !policy.automatic_persistence { return; }
+    if !policy.automatic_persistence {
+        return;
+    }
     let type_name = T::short_type_path();
 
     //info!("Detecting database changes for {}...", type_name);
@@ -551,16 +579,25 @@ fn detect_db_changes<T: FluxRecord>(
 #[cfg(feature = "server")]
 fn replicate_owned_records<T: FluxRecord>(
     set: Query<(&T, &DBRecord), Changed<T>>,
-    policies: Res<RecordPolicies>, peers: Res<AuthenticatedRecordPeers>, session: Res<Session>,
+    policies: Res<RecordPolicies>,
+    peers: Res<AuthenticatedRecordPeers>,
+    session: Res<Session>,
 ) {
     let policy = policies.get::<T>();
-    if policy.read != RecordReadAccess::OwnerByRecordId { return; }
+    if policy.read != RecordReadAccess::OwnerByRecordId {
+        return;
+    }
     for (record, db_record) in &set {
         for peer in peers.readers(policy, db_record.id) {
-            session.get_multiplexer().send_ev(Id::nil(), peer, AddComponentEvent {
-                entity_id: Some(db_record.id), component_type: T::short_type_path().to_string(),
-                component: record.to_dynamic_struct(),
-            });
+            session.get_multiplexer().send_ev(
+                Id::nil(),
+                peer,
+                AddComponentEvent {
+                    entity_id: Some(db_record.id),
+                    component_type: T::short_type_path().to_string(),
+                    component: record.to_dynamic_struct(),
+                },
+            );
         }
     }
 }

@@ -1,15 +1,15 @@
 use crate::prelude::*;
 #[cfg(feature = "bevy")]
 use bevy::{ecs::component::Mutable, prelude::*};
+#[cfg(feature = "bevy_reflect")]
+use bevy_reflect::{DynamicStruct, prelude::*};
 #[cfg(feature = "bevy")]
 use bevy_reflect::{GetTypeRegistration, Typed};
 #[cfg(feature = "bevy_reflect")]
-use bevy_reflect::{DynamicStruct, prelude::*};
+use ron::ser::{PrettyConfig, to_string_pretty};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 #[cfg(feature = "serde")]
 use serde_with::serde_as;
-#[cfg(feature = "bevy_reflect")]
-use ron::ser::{PrettyConfig, to_string_pretty};
 use smart_clone::SmartClone;
 use std::{fmt::Debug, str::FromStr};
 use uuid::Uuid;
@@ -30,9 +30,9 @@ pub use in_option::*;
 mod dynamic;
 pub use dynamic::Dynamic;
 
-pub mod dynamic_struct_serde;
 pub mod dynamic_list_serde;
 pub mod dynamic_map_serde;
+pub mod dynamic_struct_serde;
 
 #[cfg(feature = "bevy_reflect")]
 pub trait ToStringPretty {
@@ -42,7 +42,7 @@ pub trait ToStringPretty {
 #[cfg(feature = "bevy_reflect")]
 impl<T> ToStringPretty for T
 where
-    T: PartialReflect
+    T: PartialReflect,
 {
     fn to_string_pretty(&self) -> String {
         self.as_partial_reflect().to_string_pretty()
@@ -65,8 +65,7 @@ impl ToStringPretty for dyn PartialReflect {
         registry.register_global_types();
 
         let serializer = ReflectSerializer::new(self, &registry);
-        to_string_pretty(&serializer, PrettyConfig::default())
-            .unwrap()
+        to_string_pretty(&serializer, PrettyConfig::default()).unwrap()
     }
 }
 
@@ -78,7 +77,7 @@ pub trait ToDynamicStruct {
 #[cfg(feature = "bevy_reflect")]
 impl<T> ToDynamicStruct for T
 where
-    T: PartialReflect
+    T: PartialReflect,
 {
     fn to__dynamic_struct(&self) -> Option<DynamicStruct> {
         self.as_partial_reflect().to__dynamic_struct()
@@ -104,7 +103,6 @@ impl ToDynamicStruct for dyn PartialReflect {
         None
     }
 }
-
 
 #[cfg(feature = "bevy")]
 pub trait FluxRecord = Component<Mutability = Mutable>
@@ -217,9 +215,7 @@ pub struct RemoveElementEvent {
 }
 
 /// This is a placeholder comment.
-#[derive(
-    Reactive, Reflect, SmartClone, documented::Documented
-)]
+#[derive(Reactive, Reflect, SmartClone, documented::Documented)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "bevy", derive(Event))]
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -373,9 +369,7 @@ pub struct DbRequestEvent {
 }
 
 /// This is a test comment.
-#[derive(
-    Reactive, Reflect, SmartClone, documented::Documented
-)]
+#[derive(Reactive, Reflect, SmartClone, documented::Documented)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "bevy", derive(Event))]
 pub struct DbReceiveEvent {

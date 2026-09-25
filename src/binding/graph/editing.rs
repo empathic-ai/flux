@@ -1,9 +1,9 @@
 //! Explicit display, live, and draft editing of typed values behind checked paths.
 use super::*;
-use tracing::warn;
 use crate::prelude::{EntitySys, IntoResult, ReactiveView};
 use bevy_trait_query::RegisterExt;
 use std::collections::HashMap;
+use tracing::warn;
 
 /// UI write policy. Display-only rejects edits through the session API.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -621,9 +621,7 @@ impl<A: EditCollection> Driver for CollectionDriver<A> {
     }
 }
 
-pub struct ChangeCallback<T>(
-    Box<dyn FnMut(T, &mut World) -> Result<()> + Send + Sync>,
-);
+pub struct ChangeCallback<T>(Box<dyn FnMut(T, &mut World) -> Result<()> + Send + Sync>);
 
 impl<T> ChangeCallback<T>
 where
@@ -694,9 +692,7 @@ where
             .validate_param(world)
             .map_err(|_| anyhow!("on_change source unavailable"))?;
 
-        let reflected = self
-            .reader
-            .run_readonly(vec![], world)?;
+        let reflected = self.reader.run_readonly(vec![], world)?;
 
         let Some(reflected) = reflected else {
             return Ok(());

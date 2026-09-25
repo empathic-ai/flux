@@ -15,13 +15,20 @@ use bevy_trait_query::All;
 use anyhow::{Result, anyhow};
 use common::prelude::*;
 
-pub type ReactivesQuery<'w, 's> = Query<'w, 's, (Entity, Option<&'static Name>, All<&'static mut dyn Reactive>)>;
+pub type ReactivesQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        Option<&'static Name>,
+        All<&'static mut dyn Reactive>,
+    ),
+>;
 
 #[derive(Event, Clone)]
 pub struct OnChange {
     pub entity: Entity,
 }
-
 
 #[derive(SystemParam)]
 pub struct FluxCommands<'w, 's> {
@@ -30,29 +37,22 @@ pub struct FluxCommands<'w, 's> {
 }
 
 impl FluxCommands<'_, '_> {
-    pub fn load_record(&mut self, id: Id) -> Entity{
+    pub fn load_record(&mut self, id: Id) -> Entity {
         load_record(id, &mut self.db_config, &mut self.commands)
     }
 }
 
 // TODO: Add check to see whether entity already exists or not
-pub fn load_record(id: Id, db_config: &mut ResMut<DBConfig>, commands: &mut Commands) -> Entity{
-
+pub fn load_record(id: Id, db_config: &mut ResMut<DBConfig>, commands: &mut Commands) -> Entity {
     info!("Loading record with ID: {:#}", id);
 
-    let entity = commands.spawn((DBRecord { id: id.clone() }, Loading {})).id();
+    let entity = commands
+        .spawn((DBRecord { id: id.clone() }, Loading {}))
+        .id();
 
-    db_config.insert_entity(
-        &id,
-        entity
-    );
+    db_config.insert_entity(&id, entity);
 
-            
-    commands.send_network_event(Id::nil(), 
-    TrackRecordEvent {
-            entity_id: id,
-        }
-    );
+    commands.send_network_event(Id::nil(), TrackRecordEvent { entity_id: id });
 
     entity
 }
@@ -62,14 +62,13 @@ pub struct FluxWorld<'w, 's> {
     commands: Commands<'w, 's>,
     pub db_config: ResMut<'w, DBConfig>,
     // A list of all reactives in the world
-    pub reactives: ReactivesQuery<'w, 's>
+    pub reactives: ReactivesQuery<'w, 's>,
 }
 
 impl<'w, 's> FluxWorld<'w, 's> {
     pub fn load_record(&mut self, id: Id) -> Entity {
         load_record(id, &mut self.db_config, &mut self.commands)
     }
-
 }
 
 // TODO: rewrite to propogate bindings until a queue of all binding events is emptied
@@ -104,7 +103,7 @@ pub fn propogate_forms(
         )>,
         Query<(Entity, &mut PropertyBinder)>,
         FluxWorld, // 4: Query of all bindable records
-                  //Query<(Entity, &DBRecord, All<&dyn Reactive>)>
+                   //Query<(Entity, &DBRecord, All<&dyn Reactive>)>
     )>,
     mut auto_bindable_list_query: Query<(Entity, &AutoBindableList, Option<&Children>)>,
     //form_query: Query<(Entity, &Form, Option<Changed<Form>>)>,
@@ -347,8 +346,10 @@ pub fn resolve_source_value<'w, 's>(
     component_name: String,
     property_path: Option<String>,
 ) -> Option<(Option<String>, Box<dyn PartialReflect>)> {
-    let resolver = ReactiveResolver { reactives, db_config };
-
+    let resolver = ReactiveResolver {
+        reactives,
+        db_config,
+    };
 
     let (root_name, root_value) = match resolver.get_reactive(entity, &component_name) {
         Some((name, root)) => (name, root),
@@ -362,26 +363,25 @@ pub fn resolve_source_value<'w, 's>(
         return Some((root_name, root_value));
     };
 
-    let parsed_path = OptionalParsedPath::parse(&property_path).expect("Failed to parse property path");
+    let parsed_path =
+        OptionalParsedPath::parse(&property_path).expect("Failed to parse property path");
     let mut walker = PathWalker::new(root_value, &parsed_path, &resolver);
 
     // Drain the walker fully; PathStep values themselves aren't needed here,
     // only the final resting value and whether it stopped early.
-    for _step in &mut walker {
-
-    }
+    for _step in &mut walker {}
 
     if let Some(stop_reason) = walker.stop_reason() {
         match stop_reason {
             PathWalkStop::EntityMissing => {
                 //info!("Entity missing! Property path: {}", property_path)
-            },
+            }
             PathWalkStop::ComponentMissing(component_name) => {
                 //info!("Component missing! Component: {}, Property path: {}", component_name, property_path)
-            },
+            }
             PathWalkStop::OptionWasNone => {
                 //info!("Option was None! Property path: {}", property_path)
-            },
+            }
             PathWalkStop::AccessError => {
                 //info!("Access error! Property path: {}", property_path)
             }
@@ -443,7 +443,10 @@ pub fn apply_value_at_target_path<'w, 's>(
             // A value slot is transparent while traversing into its contents.
             // Leave the wrapper intact when the path ends at the slot itself.
             while current_value.try_downcast_ref::<Dynamic>().is_some() {
-                current_value = current_value.try_downcast_mut::<Dynamic>().unwrap().as_mut();
+                current_value = current_value
+                    .try_downcast_mut::<Dynamic>()
+                    .unwrap()
+                    .as_mut();
             }
             // Match PathWalker: unwrap an Option before interpreting the next
             // access, especially before checking for an Id entity jump.
@@ -451,7 +454,8 @@ pub fn apply_value_at_target_path<'w, 's>(
                 let ReflectMut::Enum(value) = current_value.reflect_mut() else {
                     return Err(anyhow!("Expected Option enum while walking target path"));
                 };
-                current_value = value.field_at_mut(0)
+                current_value = value
+                    .field_at_mut(0)
                     .ok_or_else(|| anyhow!("Option was None while walking target path"))?;
             }
             if let Some(id) = Id::from_reflect(&*current_value) {
@@ -501,13 +505,22 @@ pub fn apply_value_at_target_path<'w, 's>(
     }
 }
 
-
 pub fn apply_value<TTarget, TSource>(
     target_value: &mut TTarget,
-    source_value: TSource) -> Result<()>
-    where TTarget: PartialReflect, TSource: PartialReflect {
+    source_value: TSource,
+) -> Result<()>
+where
+    TTarget: PartialReflect,
+    TSource: PartialReflect,
+{
     let mut changed_reactives = HashSet::<(Entity, String)>::default();
-    apply_value_with_changes(target_value, source_value.to_dynamic(), Entity::PLACEHOLDER, String::new(), &mut changed_reactives)
+    apply_value_with_changes(
+        target_value,
+        source_value.to_dynamic(),
+        Entity::PLACEHOLDER,
+        String::new(),
+        &mut changed_reactives,
+    )
 }
 
 /// Shared write logic — identical semantics to your original is_dynamic/is_option handling.
@@ -518,12 +531,15 @@ fn apply_value_with_changes(
     target_component_name: String,
     changed_reactives: &mut HashSet<(Entity, String)>,
 ) -> Result<()> {
-
     // A Dynamic field is an assignable value slot, including whole Options
     // and collections. Handle it before shape coercion and list patching.
     let source_value = Dynamic::unwrap(source_value);
     if let Some(target_value) = target_value.try_downcast_mut::<Dynamic>() {
-        if target_value.as_ref().reflect_partial_eq(source_value.as_ref()) != Some(true) {
+        if target_value
+            .as_ref()
+            .reflect_partial_eq(source_value.as_ref())
+            != Some(true)
+        {
             *target_value = Dynamic(source_value);
             changed_reactives.insert((target_entity, target_component_name));
         }
@@ -565,11 +581,15 @@ fn apply_value_with_changes(
             return Err(anyhow!("Binding target type mismatch: expected a map"));
         };
         if target_value.reflect_partial_eq(_source_value.as_ref()) != Some(true) {
-            let ReflectMut::Map(target) = target_value.reflect_mut() else { unreachable!() };
+            let ReflectMut::Map(target) = target_value.reflect_mut() else {
+                unreachable!()
+            };
             // The pinned Bevy fork's DynamicMap::drain leaves its key index
             // populated. Remove entries through Map to keep that index valid.
             let keys: Vec<_> = target.iter().map(|(key, _)| key.clone_value()).collect();
-            for key in keys { target.remove(key.as_ref()); }
+            for key in keys {
+                target.remove(key.as_ref());
+            }
             for (key, value) in source.iter() {
                 target.insert_boxed(key.clone_value(), value.clone_value());
             }
@@ -580,23 +600,31 @@ fn apply_value_with_changes(
 
     // Handle list/array targets explicitly, before the dynamic-conversion path,
     // since ReflectFromReflect isn't meant for Dynamic* wrapper types.
-    if matches!(target_value.reflect_ref(), ReflectRef::List(_) | ReflectRef::Array(_)) {
+    if matches!(
+        target_value.reflect_ref(),
+        ReflectRef::List(_) | ReflectRef::Array(_)
+    ) {
         if !target_value
             .reflect_partial_eq(_source_value.as_partial_reflect())
             .unwrap_or(false)
         {
             target_value
                 .try_apply(_source_value.as_partial_reflect())
-                .map_err(|err| anyhow!(
-                    "Failed to apply list/array value to target component '{}': {}",
-                    target_component_name, err
-                ))?;
+                .map_err(|err| {
+                    anyhow!(
+                        "Failed to apply list/array value to target component '{}': {}",
+                        target_component_name,
+                        err
+                    )
+                })?;
             // Reflection applies lists as a patch; bindings assign snapshots.
             // Remove trailing items when a filtered/merged list becomes shorter.
             if let (ReflectMut::List(target), ReflectRef::List(source)) =
                 (target_value.reflect_mut(), _source_value.reflect_ref())
             {
-                while target.len() > source.len() { target.pop(); }
+                while target.len() > source.len() {
+                    target.pop();
+                }
             }
             changed_reactives.insert((target_entity, target_component_name));
         }
@@ -604,7 +632,6 @@ fn apply_value_with_changes(
     }
 
     if target_value.is_dynamic() {
-
         let _source_value = _source_value.to_dynamic();
 
         if !target_value
@@ -612,10 +639,12 @@ fn apply_value_with_changes(
             .unwrap_or(false)
         {
             tracing::trace!(?target_entity, %target_component_name, "Applying dynamic binding value");
-            target_value.try_apply(_source_value.as_ref()).map_err(|error| anyhow!("Binding target type mismatch: {error}"))?;
+            target_value
+                .try_apply(_source_value.as_ref())
+                .map_err(|error| anyhow!("Binding target type mismatch: {error}"))?;
             changed_reactives.insert((target_entity, target_component_name));
         }
-        /* 
+        /*
         let target_type_name = target_value.reflect_short_type_path();
 
         let mut type_registry = TypeRegistry::new();
@@ -634,7 +663,7 @@ fn apply_value_with_changes(
             .ok_or_else(|| anyhow!("Failed to convert source value to '{}'", target_type_name))?;
 
         info!("Converted value: {}. Target value: {}", converted.as_partial_reflect().to_string_pretty(), target_value.as_partial_reflect().to_string_pretty());
-        
+
         if !target_value
             .reflect_partial_eq(converted.as_partial_reflect())
             .unwrap_or(false)
@@ -654,14 +683,15 @@ fn apply_value_with_changes(
             .reflect_partial_eq(_source_value.as_partial_reflect())
             .unwrap_or(false)
         {
-            target_value.try_apply(_source_value.as_ref()).map_err(|error| anyhow!("Binding target type mismatch: {error}"))?;
+            target_value
+                .try_apply(_source_value.as_ref())
+                .map_err(|error| anyhow!("Binding target type mismatch: {error}"))?;
             changed_reactives.insert((target_entity, target_component_name));
         }
     }
 
     Ok(())
 }
-
 
 /// Wraps a bare source value as `Some(source_value)`, producing a `DynamicEnum` shaped
 /// like the target's `Option<T>` type so `.apply()` can write into it correctly.

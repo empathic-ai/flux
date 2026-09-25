@@ -60,14 +60,22 @@ mod tests {
     #[test]
     fn explicit_style_and_hover_transform_survive_required_components() {
         let mut world = World::new();
-        let entity = world.spawn((
-            Control::default(),
-            Button,
-            BackgroundColor(Color::WHITE),
-            Transform::from_scale(Vec3::splat(1.005)),
-        )).id();
+        let entity = world
+            .spawn((
+                Control::default(),
+                Button,
+                BackgroundColor(Color::WHITE),
+                Transform::from_scale(Vec3::splat(1.005)),
+            ))
+            .id();
         world.entity_mut(entity).insert(ImageRect::default());
-        assert_eq!(world.get::<BackgroundColor>(entity).unwrap().0, Color::WHITE);
-        assert_eq!(world.get::<Transform>(entity).unwrap().scale, Vec3::splat(1.005));
+        assert_eq!(
+            world.get::<BackgroundColor>(entity).unwrap().0,
+            Color::WHITE
+        );
+        assert_eq!(
+            world.get::<Transform>(entity).unwrap().scale,
+            Vec3::splat(1.005)
+        );
     }
 }

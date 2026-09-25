@@ -147,10 +147,10 @@ fn direct_builders_install_graphs_immediately_without_descriptor_entities() {
     let entities = app.world().entities().len();
     app.world_mut()
         .run_system_once(move |mut commands: Commands| {
-            commands.entity(target).builder().bind_from(
-                path!(source, Model.number),
-                component_path!(Model.number),
-            );
+            commands
+                .entity(target)
+                .builder()
+                .bind_from(path!(source, Model.number), component_path!(Model.number));
         })
         .unwrap();
     assert_eq!(app.world().entities().len(), entities);

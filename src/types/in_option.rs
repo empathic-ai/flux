@@ -1,7 +1,14 @@
-use bevy::{ecs::{component::Mutable, system::SystemParam}, prelude::*, reflect::Typed};
-use serde::de::DeserializeOwned;
-use std::{marker::PhantomData, ops::{Deref, DerefMut}};
 use crate::prelude::*;
+use bevy::{
+    ecs::{component::Mutable, system::SystemParam},
+    prelude::*,
+    reflect::Typed,
+};
+use serde::de::DeserializeOwned;
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
 
 pub struct InOptionIn<T: ?Sized + 'static>(PhantomData<fn(&mut T)>);
 

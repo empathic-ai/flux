@@ -1,4 +1,7 @@
-use bevy::{prelude::*, reflect::{ReflectMut, ReflectRef}};
+use bevy::{
+    prelude::*,
+    reflect::{ReflectMut, ReflectRef},
+};
 use core::fmt;
 
 pub mod error;
@@ -112,9 +115,12 @@ impl OptionalParsedPath {
         }
         Ok(Self(parts))
     }
-//}
-//impl<'a> ReflectPath<'a> for &'a OptionalParsedPath {
-    fn reflect_element<'a>(self, mut root: &dyn PartialReflect) -> PathResult<'a, &dyn PartialReflect> {
+    //}
+    //impl<'a> ReflectPath<'a> for &'a OptionalParsedPath {
+    fn reflect_element<'a>(
+        self,
+        mut root: &dyn PartialReflect,
+    ) -> PathResult<'a, &dyn PartialReflect> {
         for OffsetAccess { access, offset } in &self.0 {
             root = access.element(root, *offset)?;
         }
@@ -218,10 +224,16 @@ pub trait GetOptionalPath: GetPath {
     }
 
     /// Mutable version of [`reflect_optional_path`].
-    fn reflect_optional_path_mut<'p>(&mut self, path: &OptionalParsedPath) -> Option<&mut dyn PartialReflect> {
+    fn reflect_optional_path_mut<'p>(
+        &mut self,
+        path: &OptionalParsedPath,
+    ) -> Option<&mut dyn PartialReflect> {
         let mut current: &mut dyn PartialReflect = self.as_partial_reflect_mut();
         for offset_access in &path.0 {
-            current = offset_access.access.element_mut(current, offset_access.offset).ok()?;
+            current = offset_access
+                .access
+                .element_mut(current, offset_access.offset)
+                .ok()?;
             current = handle_option_mut(current)?;
         }
         Some(current)
@@ -235,7 +247,9 @@ fn handle_option_mut(current: &mut dyn PartialReflect) -> Option<&mut dyn Partia
         if let ReflectMut::Enum(enum_ref) = current.reflect_mut() {
             if let Some(info) = enum_ref.get_represented_enum_info() {
                 let path = info.type_path();
-                if path.starts_with("std::option::Option") || path.starts_with("core::option::Option") {
+                if path.starts_with("std::option::Option")
+                    || path.starts_with("core::option::Option")
+                {
                     Some(enum_ref.variant_name())
                 } else {
                     None

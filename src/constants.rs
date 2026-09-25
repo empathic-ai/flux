@@ -26,11 +26,7 @@ pub const GREEN: LazyLock<Color> = LazyLock::new(|| Srgba::hex("1db951").unwrap(
 //Srgba::hex("1db951").unwrap().into();
 
 pub fn get_secondary_brightness(color: Color) -> f32 {
-    if color == Color::WHITE {
-        0.2
-    } else {
-        1.0
-    }
+    if color == Color::WHITE { 0.2 } else { 1.0 }
 }
 
 pub fn get_secondary_color(color: Color) -> Color {

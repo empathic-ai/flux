@@ -1,6 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
 use bevy::ecs::error::HandleError;
 use bevy::prelude::*;
+use std::{collections::HashMap, sync::Arc};
 
 pub type SubmitFunc = CommandFuncWithArgs2<HashMap<String, String>>;
 
@@ -203,7 +203,6 @@ impl<T1, T2, T3> Clone for FuncWithArgs3<T1, T2, T3> {
 //pub type CommandFuncWithArgs2<TArgs> = FuncWithArgs2<&'static mut Commands<'static, 'static>, TArgs>;
 pub type SetPropertyFunc = CommandFuncWithArgs3<Entity, Box<dyn Reflect>>;
 
-
 pub trait EntityCloneFn: Fn(&mut Commands) -> Entity + Send + Sync {
     fn clone_box(&self) -> Box<dyn EntityCloneFn + Send + Sync>;
 }
@@ -256,21 +255,21 @@ impl EntityFunc {
         commands: &mut Commands,
         system_id: SystemId<In<Entity>, O>,
     ) -> Self {
-        let system_id = commands.register_system(move |In(entity): In<Entity>, world: &mut World| {
-            let result = world.run_system_with(system_id, entity)?;
-            result.into_entity_result()
-        });
+        let system_id =
+            commands.register_system(move |In(entity): In<Entity>, world: &mut World| {
+                let result = world.run_system_with(system_id, entity)?;
+                result.into_entity_result()
+            });
 
         EntityFunc(system_id)
     }
 
     pub fn call(&self, commands: &mut Commands, entity: Entity) -> Entity {
         let system_id = self.0.clone();
-        commands.queue(    move |world: &mut World| -> Result {
-                world.run_system_with(system_id, entity)?;
-                Ok(())
-            }
-        );
+        commands.queue(move |world: &mut World| -> Result {
+            world.run_system_with(system_id, entity)?;
+            Ok(())
+        });
         entity
     }
 }
@@ -291,16 +290,17 @@ impl IntoResult for anyhow::Result<()> {
     }
 }
 
-pub trait EntitySys<SM> = SystemParamFunction<SM, In = In<Entity>, Out: IntoResult + Send + Sync> + Send + Sync + 'static
-where
-    SM: Send + Sync + 'static,
-     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
+pub trait EntitySys<SM> =
+    SystemParamFunction<SM, In = In<Entity>, Out: IntoResult + Send + Sync> + Send + Sync + 'static
+    where
+        SM: Send + Sync + 'static,
+        <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
-
-pub trait ValueSys<T, SM> = SystemParamFunction<SM, In = In<T>, Out: IntoResult + Send + Sync> + Send + Sync + 'static
-where
-    SM: Send + Sync + 'static,
-     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
+pub trait ValueSys<T, SM> =
+    SystemParamFunction<SM, In = In<T>, Out: IntoResult + Send + Sync> + Send + Sync + 'static
+    where
+        SM: Send + Sync + 'static,
+        <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
 #[cfg(test)]
 mod tests;

@@ -1,15 +1,13 @@
-use bevy::prelude::*;
 use crate::prelude::*;
+use bevy::prelude::*;
 
 pub struct FluxClientPlugin {
-    config: FluxConfig
+    config: FluxConfig,
 }
 
 impl FluxClientPlugin {
     pub fn new(config: FluxConfig) -> Self {
-        Self {
-            config
-        }
+        Self { config }
     }
 }
 

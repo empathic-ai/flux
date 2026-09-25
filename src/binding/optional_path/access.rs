@@ -1,6 +1,9 @@
 //! Representation for individual element accesses within a path.
 
-use bevy::{prelude::*, reflect::{ReflectKind, VariantType}};
+use bevy::{
+    prelude::*,
+    reflect::{ReflectKind, VariantType},
+};
 use std::{borrow::Cow, fmt};
 
 use super::error::*;
@@ -63,7 +66,7 @@ impl<'a> Access<'a> {
         &self,
         base: &'r dyn PartialReflect,
     ) -> InnerResult<Option<&'r dyn PartialReflect>> {
-		use bevy::reflect::ReflectRef::*;
+        use bevy::reflect::ReflectRef::*;
 
         let invalid_variant =
             |expected, actual| AccessErrorKind::IncompatibleEnumVariantTypes { expected, actual };
@@ -122,7 +125,7 @@ impl<'a> Access<'a> {
         &self,
         base: &'r mut dyn PartialReflect,
     ) -> InnerResult<Option<&'r mut dyn PartialReflect>> {
-		use bevy::reflect::ReflectMut::*;
+        use bevy::reflect::ReflectMut::*;
 
         let invalid_variant =
             |expected, actual| AccessErrorKind::IncompatibleEnumVariantTypes { expected, actual };

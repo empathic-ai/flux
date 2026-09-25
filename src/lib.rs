@@ -15,18 +15,18 @@ pub use ::surrealdb as surrealdb_client;
 
 #[cfg(feature = "tonic")]
 pub mod service {
-	use crate::prelude::*;
-	
-	include!(concat!(env!("OUT_DIR"), concat!("/", "flux.rs")));
+    use crate::prelude::*;
+
+    include!(concat!(env!("OUT_DIR"), concat!("/", "flux.rs")));
     //tonic::include_proto!("flux");
 }
 #[cfg(feature = "tonic")]
 pub use service::*;
 
-#[cfg(feature = "server")]
-pub mod server;
 #[cfg(feature = "client")]
 pub mod client;
+#[cfg(feature = "server")]
+pub mod server;
 
 #[cfg(feature = "bevy")]
 pub mod binding;
@@ -52,35 +52,33 @@ pub mod multiplexer;
 pub mod serialization;
 
 pub mod prelude {
-	#[cfg(feature = "server")]
-	pub use crate::server::*;
-	#[cfg(feature = "client")]
-	pub use crate::client::*;
-	#[cfg(feature = "bevy_reflect")]
-	pub use flux_derive::*;
-	#[cfg(feature = "bevy_reflect")]
-	pub use flux_core::prelude::*;
-	#[cfg(feature = "bevy")]
-	pub use crate::binding::*;
-	#[cfg(feature = "bevy_std")]
-	pub use crate::builder::*;
-	#[cfg(feature = "bevy_std")]
-	pub use crate::elements::*;
-	#[cfg(feature = "bevy")]
-	pub use crate::constants::*;
-	#[cfg(feature = "bevy")]
-	pub use crate::functions::*;
-	#[cfg(feature = "bevy")]
-	pub use crate::plugin::*;
-	#[cfg(feature = "bevy_reflect")]
-	pub use crate::multiplexer::*;
-	#[cfg(feature = "bevy_reflect")]
-	pub use crate::types::*;
-	#[cfg(feature = "bevy_reflect")]
-	pub use reflect_steroids::prelude::*;
-	#[cfg(feature = "bevy_reflect")]
-	pub use crate::serialization::*;
-	pub use postcard::{from_bytes, to_allocvec};
+    #[cfg(feature = "bevy")]
+    pub use crate::binding::*;
+    #[cfg(feature = "bevy_std")]
+    pub use crate::builder::*;
+    #[cfg(feature = "client")]
+    pub use crate::client::*;
+    #[cfg(feature = "bevy")]
+    pub use crate::constants::*;
+    #[cfg(feature = "bevy_std")]
+    pub use crate::elements::*;
+    #[cfg(feature = "bevy")]
+    pub use crate::functions::*;
+    #[cfg(feature = "bevy_reflect")]
+    pub use crate::multiplexer::*;
+    #[cfg(feature = "bevy")]
+    pub use crate::plugin::*;
+    #[cfg(feature = "bevy_reflect")]
+    pub use crate::serialization::*;
+    #[cfg(feature = "server")]
+    pub use crate::server::*;
+    #[cfg(feature = "bevy_reflect")]
+    pub use crate::types::*;
+    #[cfg(feature = "bevy_reflect")]
+    pub use flux_core::prelude::*;
+    #[cfg(feature = "bevy_reflect")]
+    pub use flux_derive::*;
+    pub use postcard::{from_bytes, to_allocvec};
+    #[cfg(feature = "bevy_reflect")]
+    pub use reflect_steroids::prelude::*;
 }
-
-

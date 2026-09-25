@@ -4,7 +4,7 @@ use core::{
     str::from_utf8_unchecked,
 };
 
-use bevy::{prelude::*};
+use bevy::prelude::*;
 
 use derive_more::derive::{Display, Error, From};
 

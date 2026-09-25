@@ -1,13 +1,13 @@
 //! Composable, snapshot-based ECS dataflow. See `docs/binding-graphs.md`.
-mod process;
 mod expression;
+mod process;
 mod system;
 use system::GraphSystem;
 mod runtime;
-use runtime::{PathReads, Snapshot, snapshot_copy, snapshot_equal};
-pub use runtime::evaluate_binding_graphs;
 pub use expression::{BindingExpr, BindingExprInputs, IntoBindingExpr, process, process_system};
 pub use process::{ProcessFn, ProcessInputs};
+pub use runtime::evaluate_binding_graphs;
+use runtime::{PathReads, Snapshot, snapshot_copy, snapshot_equal};
 use std::collections::HashSet;
 
 use anyhow::{Result, anyhow, ensure};
@@ -288,10 +288,20 @@ impl BindingGraph {
 
     pub fn source(&mut self, path: impl IntoBindingPath) -> Result<BindingNode> {
         let path = path.into_binding_path()?;
-        if let Some(index) = self.nodes.iter().position(|node| node.source_path.as_ref() == Some(&path)) {
-            return Ok(BindingNode { graph: self.id, index });
+        if let Some(index) = self
+            .nodes
+            .iter()
+            .position(|node| node.source_path.as_ref() == Some(&path))
+        {
+            return Ok(BindingNode {
+                graph: self.id,
+                index,
+            });
         }
-        let node = BindingNode { graph: self.id, index: self.nodes.len() };
+        let node = BindingNode {
+            graph: self.id,
+            index: self.nodes.len(),
+        };
         self.nodes.push(Node {
             name: format!("{path:?}"),
             source_path: Some(path),
@@ -307,27 +317,49 @@ impl BindingGraph {
 
     /// An inactive source that can be connected later with set_source.
     pub fn pending_source(&mut self) -> BindingNode {
-        let node = BindingNode { graph: self.id, index: self.nodes.len() };
+        let node = BindingNode {
+            graph: self.id,
+            index: self.nodes.len(),
+        };
         self.nodes.push(Node {
-            source_path: None, system: None, inputs: Vec::new(), name: "pending source".into(),
+            source_path: None,
+            system: None,
+            inputs: Vec::new(),
+            name: "pending source".into(),
         });
         node
     }
 
     /// Inspect the graph's actual source nodes, without descriptor entities.
     pub fn sources(&self) -> impl Iterator<Item = (BindingNode, Option<&BindingPath>)> {
-        self.nodes.iter().enumerate().filter(|(_, node)| node.system.is_none())
-            .map(|(index, node)| (BindingNode { graph: self.id, index }, node.source_path.as_ref()))
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| node.system.is_none())
+            .map(|(index, node)| {
+                (
+                    BindingNode {
+                        graph: self.id,
+                        index,
+                    },
+                    node.source_path.as_ref(),
+                )
+            })
     }
 
     /// Retarget or suspend a source node. Its dependents retain their system state.
     pub fn set_source(&mut self, node: BindingNode, path: Option<BindingPath>) -> Result<()> {
         let index = self.check_node(node)?;
-        ensure!(self.nodes[index].system.is_none(), "Only source nodes can be retargeted");
+        ensure!(
+            self.nodes[index].system.is_none(),
+            "Only source nodes can be retargeted"
+        );
         self.nodes[index].name = format!("source {path:?}");
         self.nodes[index].source_path = path;
         for sink in &mut self.sinks {
-            if sink.input == index { sink.baseline = None; }
+            if sink.input == index {
+                sink.baseline = None;
+            }
         }
         Ok(())
     }
@@ -411,7 +443,6 @@ impl BindingGraph {
         )
     }
 
-
     /// Applies after every computation completes. Missing values retain the target.
     /// The reflected writer suppresses equal writes, and retries missing targets.
     pub fn bind(&mut self, input: BindingNode, target: impl IntoBindingPath) -> Result<&mut Self> {
@@ -420,11 +451,18 @@ impl BindingGraph {
 
     /// OnSourceChange preserves local destination edits until the source changes.
     /// This policy requires a direct source node; computations maintain their result.
-    pub fn bind_with_policy(&mut self, input: BindingNode, target: impl IntoBindingPath, policy: BindingWritePolicy) -> Result<&mut Self> {
+    pub fn bind_with_policy(
+        &mut self,
+        input: BindingNode,
+        target: impl IntoBindingPath,
+        policy: BindingWritePolicy,
+    ) -> Result<&mut Self> {
         let target = target.into_binding_path()?;
         let input = self.check_node(input)?;
-        ensure!(policy == BindingWritePolicy::Maintain || self.nodes[input].system.is_none(),
-            "OnSourceChange requires a direct source node");
+        ensure!(
+            policy == BindingWritePolicy::Maintain || self.nodes[input].system.is_none(),
+            "OnSourceChange requires a direct source node"
+        );
         self.sinks.push(Sink {
             target_path: target.clone(),
             input,
@@ -443,7 +481,8 @@ impl BindingGraph {
         target: impl Into<BindingPath>,
         conflict: BindingConflict,
     ) -> &mut Self {
-        self.links.push(TwoWayLink::new(source.into(), target.into(), conflict));
+        self.links
+            .push(TwoWayLink::new(source.into(), target.into(), conflict));
         self
     }
 
@@ -479,7 +518,9 @@ impl BindingGraph {
             "Binding graph owner is missing"
         );
         for node in &mut self.nodes {
-            let Some(system) = node.system.as_mut() else { continue };
+            let Some(system) = node.system.as_mut() else {
+                continue;
+            };
             system.initialize(world);
             ensure!(
                 !system.has_deferred(),
@@ -510,7 +551,12 @@ impl BindingGraph {
         Ok(())
     }
 
-    fn evaluate(&mut self, world: &mut World, reads: &mut PathReads, changed: &mut HashSet<(Entity, String)>) -> Result<()> {
+    fn evaluate(
+        &mut self,
+        world: &mut World,
+        reads: &mut PathReads,
+        changed: &mut HashSet<(Entity, String)>,
+    ) -> Result<()> {
         // Idle direct graphs need only dependency stamps, not value vectors,
         // reflected clones, or initialized reader systems.
         if self.change_driven() {
@@ -536,7 +582,9 @@ impl BindingGraph {
                     break;
                 }
             }
-            if idle { return Ok(()); }
+            if idle {
+                return Ok(());
+            }
         }
         let mut values: Vec<Snapshot> = Vec::with_capacity(self.nodes.len());
         let mut versions = Vec::with_capacity(self.nodes.len());
@@ -582,7 +630,8 @@ impl BindingGraph {
                 sink.baseline = None;
                 continue;
             }
-            if sink.policy == BindingWritePolicy::OnSourceChange && sink.baseline == Some(baseline) {
+            if sink.policy == BindingWritePolicy::OnSourceChange && sink.baseline == Some(baseline)
+            {
                 continue;
             }
             // Missing destinations are retried without consuming a source change.
@@ -746,11 +795,13 @@ impl TwoWayLink {
             LinkPlan::Missing => return Ok(()),
             LinkPlan::Keep => {}
             LinkPlan::Source(value) => {
-                self.write_target.check_change_tick(world.read_change_tick());
+                self.write_target
+                    .check_change_tick(world.read_change_tick());
                 self.write_target.run(value, world)?;
             }
             LinkPlan::Target(value) => {
-                self.write_source.check_change_tick(world.read_change_tick());
+                self.write_source
+                    .check_change_tick(world.read_change_tick());
                 self.write_source.run(value, world)?;
             }
         }
@@ -792,7 +843,10 @@ impl BindingGraphs {
 
     /// Retarget an installed source directly. No descriptor or graph recompilation.
     pub fn set_source(&mut self, node: BindingNode, path: Option<BindingPath>) -> Result<()> {
-        let owned = self.graphs.iter_mut().find(|owned| owned.graph.id == node.graph)
+        let owned = self
+            .graphs
+            .iter_mut()
+            .find(|owned| owned.graph.id == node.graph)
             .ok_or_else(|| anyhow!("Binding graph is not installed"))?;
         owned.graph.set_source(node, path)
     }

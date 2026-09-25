@@ -1,13 +1,14 @@
-use bevy_reflect::{
-    *, serde::{ReflectDeserializer, ReflectSerializer},
-};
-use reflect_steroids::prelude::*;
 use ::serde::de::DeserializeSeed;
 use ::serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{Error as DeError, MapAccess, Visitor},
     ser::SerializeMap,
 };
+use bevy_reflect::{
+    serde::{ReflectDeserializer, ReflectSerializer},
+    *,
+};
+use reflect_steroids::prelude::*;
 use std::{collections::BTreeMap, fmt};
 
 pub fn serialize<S>(value: &DynamicList, serializer: S) -> Result<S::Ok, S::Error>

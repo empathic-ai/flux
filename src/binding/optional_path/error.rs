@@ -1,7 +1,10 @@
 use core::fmt;
 
 use super::Access;
-use bevy::{prelude::*, reflect::{ReflectKind, VariantType}};
+use bevy::{
+    prelude::*,
+    reflect::{ReflectKind, VariantType},
+};
 
 /// The kind of [`AccessError`], along with some kind-specific information.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -89,30 +92,28 @@ impl fmt::Display for AccessError<'_> {
         write!(f, ": ")?;
 
         match kind {
-            AccessErrorKind::MissingField(type_accessed) => {
-                match access {
-                    Access::Field(field) => write!(
-                        f,
-                        "The {type_accessed} accessed doesn't have {} `{}` field",
-                        if let Some("a" | "e" | "i" | "o" | "u") = field.get(0..1) {
-                            "an"
-                        } else {
-                            "a"
-                        },
-                        access.display_value()
-                    ),
-                    Access::FieldIndex(_) => write!(
-                        f,
-                        "The {type_accessed} accessed doesn't have field index `{}`",
-                        access.display_value(),
-                    ),
-                    Access::TupleIndex(_) | Access::ListIndex(_) => write!(
-                        f,
-                        "The {type_accessed} accessed doesn't have index `{}`",
-                        access.display_value()
-                    )
-                }
-            }
+            AccessErrorKind::MissingField(type_accessed) => match access {
+                Access::Field(field) => write!(
+                    f,
+                    "The {type_accessed} accessed doesn't have {} `{}` field",
+                    if let Some("a" | "e" | "i" | "o" | "u") = field.get(0..1) {
+                        "an"
+                    } else {
+                        "a"
+                    },
+                    access.display_value()
+                ),
+                Access::FieldIndex(_) => write!(
+                    f,
+                    "The {type_accessed} accessed doesn't have field index `{}`",
+                    access.display_value(),
+                ),
+                Access::TupleIndex(_) | Access::ListIndex(_) => write!(
+                    f,
+                    "The {type_accessed} accessed doesn't have index `{}`",
+                    access.display_value()
+                ),
+            },
             AccessErrorKind::IncompatibleTypes { expected, actual } => write!(
                 f,
                 "Expected {} access to access a {expected}, found a {actual} instead.",

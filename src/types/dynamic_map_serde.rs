@@ -1,6 +1,6 @@
-use bevy_reflect::{DynamicMap, ReflectRef};
-use ::serde::{Deserializer, Serializer};
 use crate::prelude::Dynamic;
+use ::serde::{Deserializer, Serializer};
+use bevy_reflect::{DynamicMap, ReflectRef};
 
 pub fn serialize<S: Serializer>(value: &DynamicMap, serializer: S) -> Result<S::Ok, S::Error> {
     ::serde::Serialize::serialize(&Dynamic::new(value), serializer)

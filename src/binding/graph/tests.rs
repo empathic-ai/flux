@@ -1,13 +1,13 @@
 use super::*;
 use bevy_trait_query::RegisterExt;
-mod processing;
-#[cfg(feature = "bevy_std")]
-mod maps;
-mod unified;
-#[cfg(feature = "bevy_std")]
-mod ticks;
 #[cfg(feature = "bevy_std")]
 mod expressions;
+#[cfg(feature = "bevy_std")]
+mod maps;
+mod processing;
+#[cfg(feature = "bevy_std")]
+mod ticks;
+mod unified;
 
 #[derive(Component, Reflect, Clone, PartialEq)]
 #[reflect(PartialEq)]
@@ -157,7 +157,10 @@ fn list_union_is_stable_and_assignment_shrinks_to_empty() {
     let union = graph
         .process((a_node, b_node), |a: Vec<i32>, b: Vec<i32>| {
             let mut seen = HashSet::new();
-            Ok(a.into_iter().chain(b).filter(|value| seen.insert(*value)).collect::<Vec<_>>())
+            Ok(a.into_iter()
+                .chain(b)
+                .filter(|value| seen.insert(*value))
+                .collect::<Vec<_>>())
         })
         .unwrap();
     graph.bind(union, at(target, "items")).unwrap();
@@ -186,16 +189,29 @@ fn list_intersection_and_difference_are_stable_sets() {
     let a_node = graph.source(at(a, "items")).unwrap();
     let b_node = graph.source(at(b, "items")).unwrap();
     let c_node = graph.source(at(c, "items")).unwrap();
-    let intersection = graph.process((a_node, b_node, c_node), |a: Vec<i32>, b: Vec<i32>, c: Vec<i32>| {
-        let mut seen = HashSet::new();
-        Ok(a.into_iter().filter(|item| b.contains(item) && c.contains(item) && seen.insert(*item)).collect::<Vec<_>>())
-    }).unwrap();
-    let difference = graph.process((a_node, b_node), |a: Vec<i32>, b: Vec<i32>| {
-        let mut seen = HashSet::new();
-        Ok(a.into_iter().filter(|item| !b.contains(item) && seen.insert(*item)).collect::<Vec<_>>())
-    }).unwrap();
+    let intersection = graph
+        .process(
+            (a_node, b_node, c_node),
+            |a: Vec<i32>, b: Vec<i32>, c: Vec<i32>| {
+                let mut seen = HashSet::new();
+                Ok(a.into_iter()
+                    .filter(|item| b.contains(item) && c.contains(item) && seen.insert(*item))
+                    .collect::<Vec<_>>())
+            },
+        )
+        .unwrap();
+    let difference = graph
+        .process((a_node, b_node), |a: Vec<i32>, b: Vec<i32>| {
+            let mut seen = HashSet::new();
+            Ok(a.into_iter()
+                .filter(|item| !b.contains(item) && seen.insert(*item))
+                .collect::<Vec<_>>())
+        })
+        .unwrap();
     graph.bind(intersection, at(target, "items")).unwrap();
-    graph.bind(difference, at(difference_target, "items")).unwrap();
+    graph
+        .bind(difference, at(difference_target, "items"))
+        .unwrap();
     graph.install(app.world_mut(), target).unwrap();
     app.update();
     assert_eq!(app.world().get::<Model>(target).unwrap().items, vec![2, 4]);
@@ -451,17 +467,14 @@ fn two_way_retargeting_starts_a_new_source_authoritative_link() {
 
 #[test]
 fn checked_macros_cover_fields_options_indices_shapes_and_entity_jumps() {
-    use crate::prelude::{path, component_path, property_path};
+    use crate::prelude::{component_path, path, property_path};
     #[derive(Component, Reflect)]
     struct Nested {
         inner: Option<Model>,
         r#type: (i32, i32),
     }
     let entity = Entity::PLACEHOLDER;
-    assert_eq!(
-        path!(entity, Model.number).unwrap(),
-        at(entity, "number")
-    );
+    assert_eq!(path!(entity, Model.number).unwrap(), at(entity, "number"));
     assert_eq!(
         component_path!(Model.number).unwrap().at(entity),
         at(entity, "number")
@@ -554,13 +567,10 @@ fn builders_preserve_pending_sources_cascades_and_local_edits() {
     let downstream = model(&mut app, 0, vec![]);
     app.world_mut()
         .run_system_once(move |mut commands: Commands| {
-            commands.entity(editor).builder().bind_component_property(
-                source,
-                "Model",
-                "number",
-                "Model",
-                "number",
-            );
+            commands
+                .entity(editor)
+                .builder()
+                .bind_component_property(source, "Model", "number", "Model", "number");
             commands.entity(downstream).builder().bind_from(
                 Ok(path!(editor, Model.number).into_binding_expr()),
                 component_path!(Model.number),
@@ -581,7 +591,11 @@ fn builders_preserve_pending_sources_cascades_and_local_edits() {
     assert_eq!(app.world().get::<Model>(downstream).unwrap().number, 99);
     let world = app.world_mut();
     assert!(
-        world.resource::<BindingGraphs>().graphs.iter().all(|owned| owned.graph.change_driven())
+        world
+            .resource::<BindingGraphs>()
+            .graphs
+            .iter()
+            .all(|owned| owned.graph.change_driven())
             && world.resource::<BindingGraphs>().graphs.len() == 2,
         "simple builders are change-driven graphs in the unified runtime"
     );
@@ -688,21 +702,40 @@ fn scalar_list_rows_are_readable_in_callbacks_and_refresh() {
     app.add_systems(Update, process_reactive_lists);
     let source = model(&mut app, 0, vec![3, 3, 7]);
     let owners = std::array::from_fn::<_, 3, _>(|_| app.world_mut().spawn_empty().id());
-    app.world_mut().run_system_once(move |mut commands: Commands| {
-        let row = |In(entity): In<Entity>, views: Query<&ReactiveView>, mut commands: Commands| {
-            let view = views.get(entity).unwrap();
-            let item = i32::from_reflect(view.value.as_ref()).unwrap();
-            commands.entity(entity).insert(RowValue(item));
-            commands.entity(entity).insert(Model { number: 0, items: vec![], next: None });
-            commands.entity(entity).builder().bind_from(
-                path!(entity, ReactiveView.value), component_path!(Model.number));
-        };
-        commands.entity(owners[0]).builder().bind_list(source, "Model", "items", row);
-        commands.entity(owners[1]).builder().bind_list_from(path!(source, Model.items), row);
-        let mut graph = BindingGraph::new();
-        let node = graph.source(at(source, "items")).unwrap();
-        commands.entity(owners[2]).builder().bind_list_node(graph, node, row).unwrap();
-    }).unwrap();
+    app.world_mut()
+        .run_system_once(move |mut commands: Commands| {
+            let row =
+                |In(entity): In<Entity>, views: Query<&ReactiveView>, mut commands: Commands| {
+                    let view = views.get(entity).unwrap();
+                    let item = i32::from_reflect(view.value.as_ref()).unwrap();
+                    commands.entity(entity).insert(RowValue(item));
+                    commands.entity(entity).insert(Model {
+                        number: 0,
+                        items: vec![],
+                        next: None,
+                    });
+                    commands.entity(entity).builder().bind_from(
+                        path!(entity, ReactiveView.value),
+                        component_path!(Model.number),
+                    );
+                };
+            commands
+                .entity(owners[0])
+                .builder()
+                .bind_list(source, "Model", "items", row);
+            commands
+                .entity(owners[1])
+                .builder()
+                .bind_list_from(path!(source, Model.items), row);
+            let mut graph = BindingGraph::new();
+            let node = graph.source(at(source, "items")).unwrap();
+            commands
+                .entity(owners[2])
+                .builder()
+                .bind_list_node(graph, node, row)
+                .unwrap();
+        })
+        .unwrap();
 
     let mut previous_children = Vec::new();
     for expected in [vec![3, 3, 7], vec![9], vec![]] {
@@ -714,10 +747,15 @@ fn scalar_list_rows_are_readable_in_callbacks_and_refresh() {
             assert!(app.world().get_entity(old).is_err());
         }
         for owner in owners {
-            let children: Vec<_> = app.world().get::<Children>(owner)
-                .map(|children| children.iter().collect()).unwrap_or_default();
-            let values: Vec<_> = children.iter()
-                .map(|child| app.world().get::<RowValue>(*child).unwrap().0).collect();
+            let children: Vec<_> = app
+                .world()
+                .get::<Children>(owner)
+                .map(|children| children.iter().collect())
+                .unwrap_or_default();
+            let values: Vec<_> = children
+                .iter()
+                .map(|child| app.world().get::<RowValue>(*child).unwrap().0)
+                .collect();
             assert_eq!(values, expected);
             for (child, expected) in children.iter().zip(&expected) {
                 assert_eq!(app.world().get::<Model>(*child).unwrap().number, *expected);
@@ -749,37 +787,69 @@ fn uuid_set_minus_map_keys_renders_scalar_rows() {
     app.add_systems(Update, process_reactive_lists);
     let a = Uuid::from_u128(1);
     let b = Uuid::from_u128(2);
-    let source = app.world_mut().spawn(Networks {
-        available: HashSet::from([a, b]),
-        configured: std::collections::HashMap::from([(a, "saved".into())]),
-    }).id();
+    let source = app
+        .world_mut()
+        .spawn(Networks {
+            available: HashSet::from([a, b]),
+            configured: std::collections::HashMap::from([(a, "saved".into())]),
+        })
+        .id();
     let owner = app.world_mut().spawn_empty().id();
-    app.world_mut().run_system_once(move |mut commands: Commands| {
-        let mut graph = BindingGraph::new();
-        let available = graph.source(path!(source, Networks.available).unwrap()).unwrap();
-        let configured = graph.source(path!(source, Networks.configured).unwrap()).unwrap();
-        let difference = graph.process((available, configured),
-            |available: HashSet<Uuid>, configured: std::collections::HashMap<Uuid, String>| {
-                let mut ids: Vec<_> = available.into_iter().filter(|id| !configured.contains_key(id)).collect();
-                ids.sort_unstable();
-                Ok(ids)
-            }).unwrap();
-        commands.entity(owner).builder().bind_list_node(graph, difference,
-            |In(row): In<Entity>, views: Query<&ReactiveView>, mut commands: Commands| {
-                let view = views.get(row).unwrap();
-                let id = Uuid::from_reflect(view.value.as_ref()).unwrap();
-                commands.entity(row).insert(NetworkRow(id));
-            }).unwrap();
-    }).unwrap();
+    app.world_mut()
+        .run_system_once(move |mut commands: Commands| {
+            let mut graph = BindingGraph::new();
+            let available = graph
+                .source(path!(source, Networks.available).unwrap())
+                .unwrap();
+            let configured = graph
+                .source(path!(source, Networks.configured).unwrap())
+                .unwrap();
+            let difference = graph
+                .process(
+                    (available, configured),
+                    |available: HashSet<Uuid>,
+                     configured: std::collections::HashMap<Uuid, String>| {
+                        let mut ids: Vec<_> = available
+                            .into_iter()
+                            .filter(|id| !configured.contains_key(id))
+                            .collect();
+                        ids.sort_unstable();
+                        Ok(ids)
+                    },
+                )
+                .unwrap();
+            commands
+                .entity(owner)
+                .builder()
+                .bind_list_node(
+                    graph,
+                    difference,
+                    |In(row): In<Entity>, views: Query<&ReactiveView>, mut commands: Commands| {
+                        let view = views.get(row).unwrap();
+                        let id = Uuid::from_reflect(view.value.as_ref()).unwrap();
+                        commands.entity(row).insert(NetworkRow(id));
+                    },
+                )
+                .unwrap();
+        })
+        .unwrap();
     app.update();
     app.update();
     let children = app.world().get::<Children>(owner).unwrap();
     assert_eq!(children.len(), 1);
     assert_eq!(app.world().get::<NetworkRow>(children[0]).unwrap().0, b);
-    app.world_mut().get_mut::<Networks>(source).unwrap().configured.insert(b, "saved too".into());
+    app.world_mut()
+        .get_mut::<Networks>(source)
+        .unwrap()
+        .configured
+        .insert(b, "saved too".into());
     app.update();
     app.update();
-    assert!(app.world().get::<Children>(owner).is_none_or(|children| children.is_empty()));
+    assert!(
+        app.world()
+            .get::<Children>(owner)
+            .is_none_or(|children| children.is_empty())
+    );
     assert_ok(&app);
 }
 
@@ -792,12 +862,23 @@ fn dynamic_view_paths_read_write_and_retarget_records() {
     let second = model(&mut app, 11, vec![]);
     let first_id = Id::new();
     let second_id = Id::new();
-    app.world_mut().resource_mut::<DBConfig>().insert_entity(&first_id, first);
-    app.world_mut().resource_mut::<DBConfig>().insert_entity(&second_id, second);
-    let view = app.world_mut().spawn(ReactiveView { value: Dynamic::new(&first_id) }).id();
+    app.world_mut()
+        .resource_mut::<DBConfig>()
+        .insert_entity(&first_id, first);
+    app.world_mut()
+        .resource_mut::<DBConfig>()
+        .insert_entity(&second_id, second);
+    let view = app
+        .world_mut()
+        .spawn(ReactiveView {
+            value: Dynamic::new(&first_id),
+        })
+        .id();
     let destination = model(&mut app, 0, vec![]);
     let mut graph = BindingGraph::new();
-    let source = graph.source(path!(view, ReactiveView.value as Id -> Model.number).unwrap()).unwrap();
+    let source = graph
+        .source(path!(view, ReactiveView.value as Id -> Model.number).unwrap())
+        .unwrap();
     graph.bind(source, at(destination, "number")).unwrap();
     graph.install(app.world_mut(), view).unwrap();
     app.update();
@@ -808,24 +889,41 @@ fn dynamic_view_paths_read_write_and_retarget_records() {
 
     let mut graph = BindingGraph::new();
     let value = graph.constant(23_i32).unwrap();
-    graph.bind(value, path!(view, ReactiveView.value as Id -> Model.number).unwrap()).unwrap();
+    graph
+        .bind(
+            value,
+            path!(view, ReactiveView.value as Id -> Model.number).unwrap(),
+        )
+        .unwrap();
     graph.install(app.world_mut(), view).unwrap();
     app.update();
     assert_eq!(app.world().get::<Model>(first).unwrap().number, 7);
     assert_eq!(app.world().get::<Model>(second).unwrap().number, 23);
 
-    app.world_mut().resource_mut::<BindingGraphs>().remove_owner(view);
+    app.world_mut()
+        .resource_mut::<BindingGraphs>()
+        .remove_owner(view);
     // The same field also supports a nested struct, without an entity jump.
     app.world_mut().get_mut::<ReactiveView>(view).unwrap().value = Dynamic::new(&Model {
-        number: 0, items: vec![], next: None,
+        number: 0,
+        items: vec![],
+        next: None,
     });
     let mut graph = BindingGraph::new();
     let value = graph.constant(31_i32).unwrap();
-    graph.bind(value, path!(view, ReactiveView.value as Model.number).unwrap()).unwrap();
+    graph
+        .bind(
+            value,
+            path!(view, ReactiveView.value as Model.number).unwrap(),
+        )
+        .unwrap();
     graph.install(app.world_mut(), view).unwrap();
     app.update();
     let value = app.world().get::<ReactiveView>(view).unwrap();
-    assert_eq!(Model::from_reflect(value.value.as_ref()).unwrap().number, 31);
+    assert_eq!(
+        Model::from_reflect(value.value.as_ref()).unwrap().number,
+        31
+    );
     assert_ok(&app);
 }
 
