@@ -241,7 +241,7 @@ pub trait GetOptionalPath: GetPath {
 }
 
 /// Helper to detect and unwrap `Option` variants on a mutable `PartialReflect`.
-fn handle_option_mut(current: &mut dyn PartialReflect) -> Option<&mut dyn PartialReflect> {
+pub fn handle_option_mut(current: &mut dyn PartialReflect) -> Option<&mut dyn PartialReflect> {
     // First pass: detect if current is Option<T> and which variant, without retaining borrow
     let variant = {
         if let ReflectMut::Enum(enum_ref) = current.reflect_mut() {
