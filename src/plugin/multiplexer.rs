@@ -328,7 +328,18 @@ impl Multiplexer {
     {
         let mut rx = self.get_channel(receiver_id);
         loop {
-            if let Some(network_ev) = rx.try_recv() {
+            let network_ev = std::future::poll_fn(|cx| {
+                let mut channels = self.channels.write().unwrap();
+                let channel = channels.get_mut(&rx.id).unwrap();
+                match channel.recv_ev(&mut rx.last_ev) {
+                    Some(event) => Poll::Ready(event),
+                    None => {
+                        channel.wakers.insert(rx.receiver_id, cx.waker().clone());
+                        Poll::Pending
+                    }
+                }
+            }).await;
+            {
                 if network_ev.peer_id == sender_id {
                     if let Some(ev) = network_ev.get_ev::<T>() {
                         return Ok(ev);
@@ -361,6 +372,54 @@ impl Multiplexer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_receive_yields_and_wakes_for_matching_event() {
+        use std::future::Future;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::task::Wake;
+
+        struct WakeFlag(AtomicBool);
+        impl Wake for WakeFlag {
+            fn wake(self: Arc<Self>) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let multiplexer = Multiplexer::new();
+        let recipient_id = Id::new();
+        let sender_id = Id::new();
+        let entity_id = Id::new();
+        let flag = Arc::new(WakeFlag(AtomicBool::new(false)));
+        let waker = Waker::from(flag.clone());
+        let mut context = Context::from_waker(&waker);
+        let mut receive = std::pin::pin!(multiplexer.recv_ev::<TrackRecordEvent>(recipient_id, sender_id));
+
+        assert!(receive.as_mut().poll(&mut context).is_pending());
+        multiplexer.send_ev(Id::new(), recipient_id, TrackRecordEvent { entity_id });
+        assert!(flag.0.swap(false, Ordering::SeqCst));
+        assert!(receive.as_mut().poll(&mut context).is_pending());
+        multiplexer.send_ev(sender_id, recipient_id, TrackRecordEvent { entity_id });
+        assert!(flag.0.load(Ordering::SeqCst));
+        match receive.as_mut().poll(&mut context) {
+            Poll::Ready(Ok(event)) => assert_eq!(event.entity_id, entity_id),
+            _ => panic!("expected the matching event"),
+        }
+    }
+
+    #[test]
+    fn cancelling_typed_receive_removes_its_subscription() {
+        use std::future::Future;
+
+        let multiplexer = Multiplexer::new();
+        let recipient_id = Id::new();
+        let sender_id = Id::new();
+        let mut context = Context::from_waker(Waker::noop());
+        let mut receive = Box::pin(multiplexer.recv_ev::<TrackRecordEvent>(recipient_id, sender_id));
+        assert!(receive.as_mut().poll(&mut context).is_pending());
+        drop(receive);
+        assert!(!multiplexer.channels.read().unwrap().contains_key(&recipient_id));
+    }
 
     #[test]
     fn queued_events_are_not_dropped_before_receiver_registration() {

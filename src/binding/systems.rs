@@ -37,15 +37,44 @@ pub struct FluxCommands<'w, 's> {
 }
 
 impl FluxCommands<'_, '_> {
+    pub fn load_record_component<T: FluxRecord>(&mut self, id: Id) -> Entity {
+        load_record_component(id, T::short_type_path().to_owned(), &mut self.db_config, &mut self.commands)
+    }
+
     pub fn load_record(&mut self, id: Id) -> Entity {
         load_record(id, &mut self.db_config, &mut self.commands)
     }
 }
 
 pub fn load_record(id: Id, db_config: &mut ResMut<DBConfig>, commands: &mut Commands) -> Entity {
+    let (entity, created) = ensure_record_entity(id, db_config, commands);
+    if created {
+        commands.send_network_event(Id::nil(), TrackRecordEvent { entity_id: id });
+    }
+    entity
+}
+
+pub fn load_record_component(id: Id, component_type: String, db_config: &mut ResMut<DBConfig>, commands: &mut Commands) -> Entity {
+    let (entity, _) = ensure_record_entity(id, db_config, commands);
+    if id != Id::nil() {
+        commands.queue(move |world: &mut World| {
+            let present = world.query::<All<&dyn Reactive>>()
+                .get(world, entity).ok()
+                .is_some_and(|components| components.iter().any(|component| component.reflect_short_type_path() == component_type));
+            if !present {
+                if let Some(session) = world.get_resource::<Session>() {
+                    session.request_record_component(id, component_type, entity);
+                }
+            }
+        });
+    }
+    entity
+}
+
+fn ensure_record_entity(id: Id, db_config: &mut ResMut<DBConfig>, commands: &mut Commands) -> (Entity, bool) {
     if let Some(entity) = db_config.get_entity(&id) {
         if commands.get_entity(entity).is_ok() {
-            return entity;
+            return (entity, false);
         }
         db_config.id_mappings.remove(&id);
         db_config.entity_mappings.remove(&entity);
@@ -59,9 +88,7 @@ pub fn load_record(id: Id, db_config: &mut ResMut<DBConfig>, commands: &mut Comm
 
     db_config.insert_entity(&id, entity);
 
-    commands.send_network_event(Id::nil(), TrackRecordEvent { entity_id: id });
-
-    entity
+    (entity, true)
 }
 
 #[derive(SystemParam)]
@@ -73,6 +100,10 @@ pub struct FluxWorld<'w, 's> {
 }
 
 impl<'w, 's> FluxWorld<'w, 's> {
+    pub fn load_record_component<T: FluxRecord>(&mut self, id: Id) -> Entity {
+        load_record_component(id, T::short_type_path().to_owned(), &mut self.db_config, &mut self.commands)
+    }
+
     pub fn load_record(&mut self, id: Id) -> Entity {
         load_record(id, &mut self.db_config, &mut self.commands)
     }

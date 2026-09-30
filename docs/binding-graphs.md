@@ -6,6 +6,29 @@ Multiple sources can feed a function, one result can feed multiple functions,
 and a function result can be followed by another path (including an `Id` jump).
 Every binding builder creates a graph; there is no descriptor-based runtime.
 
+Client graphs with a `Session` request missing components at non-nil `Id` jumps
+through the shared component loader after evaluation. Entity mappings identify
+records, not which components have been requested. Each `(Id, component type)`
+demand reuses the mapped entity and sends a selective tracking request, including
+when another component on that entity has already arrived. Requests are deduplicated
+within a session and entity generation, across bindings and explicit loads.
+Destinations retain their current value until the referenced component arrives;
+mapping and component changes then refresh the binding. Server graphs and
+worlds without a session do not initiate these network requests.
+
+Use `FluxCommands::load_record_component::<Device>(id)` or the equivalent
+`FluxWorld` method for explicit typed demand. Registered, already-present reactive
+components do not generate requests. The legacy `load_record(id)` API retains its
+ID-wide behavior and requests all readable record types when it creates a placeholder;
+it does not suppress later selective demands. The server filters selective requests
+by record type before applying its existing principal and record authorization checks.
+Client and server builds must both support `TrackRecordComponentEvent`.
+
+The request ledger belongs to `Session`: a new session or replacement entity can
+request the component again. Requests currently have no timeout or negative
+acknowledgement, so denied or lost requests are not automatically retried within
+the same session and entity generation.
+
 ## Architectural basis
 
 The design draws on several established systems, with different responsibilities:

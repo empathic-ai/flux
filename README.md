@@ -71,6 +71,37 @@ share the same lifecycle. See [lazy views](docs/lazy-views.md).
 See [record access](docs/record-access.md) for owner-only and server-only replication,
 authenticated peer binding, and database authorization.
 
+## Session lifecycle
+
+Flux initializes `SessionState` independently of `DatabaseState`. Startup moves
+the session from `Disconnected` to `Establishing`, then to `Ready` after obtaining
+a valid peer ID and inserting the `Session` resource. Registration, HTTP, or
+invalid peer-ID failures set `SessionState::Failed`; they do not mark the database
+as failed. The server establishes its local session using the nil peer ID.
+
+Session startup lives in `plugin/session.rs` and runs with the `futures` and
+`tokio` features, independently of `surrealdb`. Clients without database support
+can establish a session and relay network events. The `Session`, `is_session`,
+and `register` prelude exports remain available.
+
+With `surrealdb` enabled, a separate database startup system runs on
+`OnEnter(SessionState::Ready)`, moving from `Disconnected` to `Connecting`.
+This preserves session availability for existing database-ready consumers
+without making session startup depend on database support. Database connection
+and preparation failures use `DatabaseState::Failed`. Without `surrealdb`, the
+database remains `Disconnected`.
+
+ECS consumers can read `Res<State<SessionState>>`, react with
+`OnEnter(SessionState::Failed)`, or gate session-dependent systems with
+`run_if(in_state(SessionState::Ready))`. Systems requiring records should still
+wait for `DatabaseState::Ready`.
+
+`SessionState::Ready` means a peer session exists, not that a user has completed
+OAuth login or that the server event transport remains connected. The existing
+`NetworkState` enum is not currently driven by transport events. Session retry,
+expiration, and ongoing transport connectivity are not tracked by this startup
+lifecycle.
+
 ## Query expressions
 
 See [query expressions](docs/query-expressions.md) for typed `query!` and

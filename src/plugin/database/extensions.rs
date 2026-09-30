@@ -629,9 +629,15 @@ fn handle_db_events<T: FluxRecord>(
 ) {
     let policy = policies.get::<T>();
     for ev in db_request_evs.read() {
+        if ev.component_type.as_deref().is_some_and(|name| name != T::short_type_path()) {
+            continue;
+        }
         let id = ev.db_record_id;
         let peer_id = ev.peer_id;
         if !policy.can_read(id, peers.principal(peer_id)) {
+            if ev.component_type.is_some() {
+                warn!(record_id = %id, component_type = T::short_type_path(), peer_id = %peer_id, "Record component request denied by read policy");
+            }
             continue;
         }
         commands.try_get_record(
@@ -643,6 +649,7 @@ fn handle_db_events<T: FluxRecord>(
                 // Recheck at send time: a login may have changed while the DB read was pending.
                 if let Some(record) = record.get() {
                     if !policies.can_read_record(id, peers.principal(peer_id), record) {
+                        warn!(record_id = %id, component_type = T::short_type_path(), peer_id = %peer_id, "Record component request denied by record authorization");
                         return;
                     }
                     info!(

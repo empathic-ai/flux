@@ -2,6 +2,9 @@ mod database;
 use bevy_trait_query::RegisterExt;
 pub use database::*;
 
+mod session;
+pub use session::*;
+
 mod commands;
 pub use commands::*;
 
@@ -37,50 +40,6 @@ use bevy::{ecs::system::SystemState, prelude::*, reflect::DynamicStruct};
 use bevy_simple_subsecond_system::prelude::*;
 use common::prelude::*;
 
-#[derive(Resource, Clone)]
-pub struct Session {
-    multiplexer: Multiplexer,
-    channel: Channel,
-}
-
-impl Session {
-    pub fn new(peer_id: Id) -> Self {
-        let multiplexer = Multiplexer::new();
-        Self {
-            multiplexer: multiplexer.clone(),
-            channel: multiplexer.get_channel(peer_id),
-        }
-    }
-
-    ///  Sends an event using the current user's channel.
-    pub fn send_ev<T>(&self, recipient_id: Id, ev: T)
-    where
-        T: Struct,
-    {
-        self.channel.send_ev(recipient_id, ev);
-    }
-
-    pub fn get_channel_mut(&mut self) -> &mut Channel {
-        &mut self.channel
-    }
-
-    pub fn clone_channel(&self) -> Channel {
-        self.channel.clone()
-    }
-
-    pub fn get_peer_channel(&self, id: Id) -> Channel {
-        self.multiplexer.get_channel(id)
-    }
-
-    pub fn get_multiplexer(&self) -> Multiplexer {
-        self.multiplexer.clone()
-    }
-
-    pub fn get_id(&self) -> Id {
-        self.channel.get_id()
-    }
-}
-
 pub struct FluxPlugin {
     config: FluxConfig,
 }
@@ -114,12 +73,13 @@ impl Plugin for FluxPlugin {
             .add_reactive::<ReactiveMapKey>();
 
         app.init_state::<DatabaseState>()
+            .init_state::<SessionState>()
             .insert_resource(self.config.clone())
             .add_event::<NetworkEvent>()
             .add_event::<PeerEvent>()
             .add_systems(
                 Update,
-                relay_network_events.run_if(in_state(DatabaseState::Ready)),
+                relay_network_events.run_if(in_state(SessionState::Ready)),
             )
             .add_systems(
                 PostUpdate,
@@ -131,8 +91,11 @@ impl Plugin for FluxPlugin {
         #[cfg(feature = "subsecond")]
         app.add_plugins(SimpleSubsecondPlugin::default());
 
+        #[cfg(all(feature = "futures", feature = "tokio"))]
+        app.add_systems(PreStartup, (startup, session::start).chain());
+
         #[cfg(feature = "surrealdb")]
-        app.add_systems(PreStartup, (startup, database::start).chain())
+        app.add_systems(OnEnter(SessionState::Ready), database::start)
             .add_systems(OnEnter(DatabaseState::Connected), database::prepare_database);
 
         #[cfg(feature = "futures")]

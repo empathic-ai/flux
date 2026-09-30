@@ -40,6 +40,7 @@ pub(super) struct CachedPath {
     pub route_version: u64,
     pub dependencies: Vec<Dependency>,
     mappings: Vec<(Id, Option<Entity>)>,
+    component_demands: Vec<(Id, String)>,
     dirty: bool,
     used: u64,
 }
@@ -49,6 +50,7 @@ struct TrackingResolver<'a, 'w, 's> {
     db: &'a DBConfig,
     dependencies: RefCell<Vec<Dependency>>,
     mappings: RefCell<Vec<(Id, Option<Entity>)>>,
+    component_demands: RefCell<Vec<(Id, String)>>,
     generations: &'a HashMap<Key, u64>,
 }
 
@@ -89,6 +91,13 @@ impl EntityResolver for TrackingResolver<'_, '_, '_> {
         self.mappings.borrow_mut().push((id.clone(), entity));
         entity
     }
+    fn resolve_record_component(&self, id: &Id, component: &str) -> Option<Entity> {
+        let entity = self.resolve_id(id);
+        if entity.is_none_or(|entity| self.ticks(&(entity, component.to_owned())).is_none()) {
+            self.component_demands.borrow_mut().push((*id, component.to_owned()));
+        }
+        entity
+    }
 }
 
 pub(super) struct PathReads {
@@ -125,6 +134,7 @@ impl PathReads {
             db: &db,
             dependencies: Default::default(),
             mappings: Default::default(),
+            component_demands: Default::default(),
             generations: &self.generations,
         };
         let valid = self.paths.get(path).is_some_and(|cached| {
@@ -146,6 +156,7 @@ impl PathReads {
             };
             let dependencies = resolver.dependencies.into_inner();
             let mappings = resolver.mappings.into_inner();
+            let component_demands = resolver.component_demands.into_inner();
             let old = self.paths.get(path);
             let route_changed = old.is_none_or(|old| {
                 old.mappings != mappings
@@ -171,6 +182,7 @@ impl PathReads {
                     route_version,
                     dependencies,
                     mappings,
+                    component_demands,
                     dirty: false,
                     used: self.frame,
                 },
@@ -307,6 +319,21 @@ pub fn evaluate_binding_graphs(world: &mut World) {
             }
         }
         reads.paths.retain(|_, cached| cached.used == reads.frame);
+        #[cfg(feature = "client")]
+        if world.contains_resource::<crate::prelude::Session>() {
+            let missing: HashSet<(Id, String)> = reads.paths.values()
+                .flat_map(|cached| cached.component_demands.iter().cloned())
+                .filter(|(id, _)| *id != Id::nil())
+                .collect();
+            if !missing.is_empty() {
+                let mut state = SystemState::<(ResMut<DBConfig>, Commands)>::new(world);
+                let (mut database, mut commands) = state.get_mut(world);
+                for (id, component) in missing {
+                    crate::binding::load_record_component(id, component, &mut database, &mut commands);
+                }
+                state.apply(world);
+            }
+        }
         let live = reads.dependency_keys();
         reads.generations.retain(|key, _| live.contains(key));
         graphs.runtime = Some(reads);

@@ -16,6 +16,9 @@ pub trait EntityResolver {
         component_name: &str,
     ) -> Option<(Option<String>, Box<dyn PartialReflect>)>;
     fn resolve_id(&self, id: &Id) -> Option<Entity>;
+    fn resolve_record_component(&self, id: &Id, _component: &str) -> Option<Entity> {
+        self.resolve_id(id)
+    }
 }
 
 /// The default resolver, usable anywhere you have a reactives query + DBConfig.
@@ -125,7 +128,7 @@ impl<'a, R: EntityResolver> Iterator for PathWalker<'a, R> {
         if let Some(id) = Id::from_reflect(self.current.as_partial_reflect()) {
             let component_name = offset_access.access.display_value().to_string();
 
-            let Some(entity) = self.resolver.resolve_id(&id) else {
+            let Some(entity) = self.resolver.resolve_record_component(&id, &component_name) else {
                 self.stopped = Some(PathWalkStop::EntityMissing);
                 return None;
             };

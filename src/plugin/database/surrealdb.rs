@@ -116,7 +116,12 @@ pub struct Record {
     id: surrealdb::types::record_id::RecordId,
 }
 
-pub fn start(config: Res<FluxConfig>, runner: Res<AsyncRunner>, tasks: Tasks) -> Result {
+pub fn start(
+    runner: Res<AsyncRunner>,
+    tasks: Tasks,
+    mut state: ResMut<NextState<DatabaseState>>,
+) -> Result {
+    state.set(DatabaseState::Connecting);
     //info!("Starting server...");
 
     #[cfg(all(feature = "server", feature = "production"))]
@@ -160,13 +165,7 @@ pub fn start(config: Res<FluxConfig>, runner: Res<AsyncRunner>, tasks: Tasks) ->
 
     let async_world = runner.get_async_world();
 
-    let api_url: String = config.get_client_api_url();
-
     tasks.spawn_auto(async move |x| {
-        async_world
-            .insert_resource(Session::new(get_peer_id(api_url).await))
-            .await;
-
         let db = match get_database().await {
             Ok(database) => database,
             Err(error) => {
@@ -204,27 +203,6 @@ pub fn start(config: Res<FluxConfig>, runner: Res<AsyncRunner>, tasks: Tasks) ->
     //});
 
     Ok(())
-}
-
-// TODO: Rework to suport dual mode. Cannot be dependent on cfg features
-#[cfg(feature = "client")]
-async fn get_peer_id(api_url: String) -> Id {
-    let peer_id = match is_session(api_url.clone()).await {
-        Ok(client_id) => {
-            if client_id.is_empty() {
-                register(api_url).await.unwrap()
-            } else {
-                client_id
-            }
-        }
-        Err(err) => {
-            info!("Error grabbing session: {}", err);
-            register(api_url).await.unwrap()
-        }
-    };
-
-    info!("Got client ID: {}", peer_id);
-    Id::from(&peer_id)
 }
 
 /// Connect to the configured SurrealDB
@@ -277,38 +255,6 @@ pub async fn get_database() -> anyhow::Result<Surreal<Any>> {
     Ok(db)
 }
 
-#[cfg(feature = "server")]
-async fn get_peer_id(api_url: String) -> Id {
-    Id::nil()
-}
-
-#[cfg(feature = "client")]
-pub async fn is_session(api_url: String) -> reqwest::Result<String> {
-    let client = reqwest::Client::new();
-    let mut req = client.post(format!("{}/session", api_url));
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        req = req.fetch_credentials_include();
-    }
-
-    req.send().await?.error_for_status()?.text().await
-}
-
-#[cfg(feature = "client")]
-pub async fn register(api_url: String) -> reqwest::Result<String> {
-    let client = reqwest::Client::new();
-
-    let mut req = client.post(format!("{}/register", api_url));
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        req = req.fetch_credentials_include();
-    }
-
-    req.send().await?.text().await
-}
-
 #[cfg(feature = "surrealdb")]
 fn get_database_address() -> anyhow::Result<String> {
     if cfg!(target_arch = "wasm32") {
@@ -326,7 +272,3 @@ fn get_database_address() -> anyhow::Result<String> {
     ))
 }
 
-#[cfg(not(any(feature = "client", feature = "server")))]
-async fn get_peer_id(_: String) -> Id {
-    Id::nil()
-}

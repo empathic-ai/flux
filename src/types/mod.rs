@@ -128,8 +128,8 @@ pub struct PeerEvent {
 #[cfg_attr(feature = "bevy", derive(States))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum DatabaseState {
-    Disconnected,
     #[default]
+    Disconnected,
     Connecting,
     Connected,
     Preparing,
@@ -138,6 +138,16 @@ pub enum DatabaseState {
 }
 
 pub type DbState = DatabaseState;
+
+#[cfg_attr(feature = "bevy", derive(States))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub enum SessionState {
+    #[default]
+    Disconnected,
+    Establishing,
+    Ready,
+    Failed,
+}
 
 #[cfg_attr(feature = "bevy", derive(States))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -171,6 +181,15 @@ pub struct RemoveEntityEvent {}
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct TrackRecordEvent {
     pub entity_id: Id,
+}
+/// Requests one record component on an entity.
+#[derive(Reflect, Reactive, documented::Documented)]
+#[cfg_attr(feature = "bevy", derive(Component, Event))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct TrackRecordComponentEvent {
+    pub entity_id: Id,
+    pub component_type: String,
 }
 ///
 #[derive(Reflect, Reactive, documented::Documented)]
@@ -372,6 +391,7 @@ impl GetTypeRegistration for Dynamic {
 pub struct DbRequestEvent {
     pub peer_id: Id,
     pub db_record_id: Id,
+    pub component_type: Option<String>,
 }
 
 /// This is a test comment.

@@ -11,6 +11,78 @@ struct PrivateRecord { value: u32 }
 #[derive(Resource, Default)]
 struct LoadedEntities(Vec<Entity>);
 
+#[cfg(feature = "client")]
+#[derive(Component, Reflect, Reactive, Clone)]
+struct RecordReference { record: Id }
+
+#[cfg(feature = "client")]
+#[test]
+fn binding_requests_missing_record_once_and_refreshes_after_delivery() {
+    let mut app = App::new();
+    app.add_plugins(BindingGraphPlugin)
+        .insert_resource(DBConfig {
+            #[cfg(feature = "surrealdb")]
+            db: std::sync::Arc::new(surrealdb::Surreal::init()),
+            id_mappings: Default::default(),
+            entity_mappings: Default::default(),
+        })
+        .insert_resource(Session::new(Id::new()));
+    use bevy_trait_query::RegisterExt;
+    app.register_component_as::<dyn Reactive, RecordReference>()
+        .register_component_as::<dyn Reactive, PublicRecord>()
+        .register_component_as::<dyn Reactive, PrivateRecord>();
+    let id = Id::new();
+    let source = app.world_mut().spawn(RecordReference { record: id }).id();
+    let target = app.world_mut().spawn(PublicRecord { value: 0 }).id();
+    let mut graph = BindingGraph::new();
+    let value = graph.source(BindingPath::new(
+        source, "RecordReference", Some("record.PublicRecord.value"),
+    ).unwrap()).unwrap();
+    graph.bind(value, BindingPath::new(target, "PublicRecord", Some("value")).unwrap()).unwrap();
+    graph.install(app.world_mut(), target).unwrap();
+    let mut server = app.world().resource::<Session>().get_peer_channel(Id::nil());
+
+    app.update();
+    let request = server.try_recv().unwrap().get_ev::<TrackRecordComponentEvent>().unwrap();
+    assert_eq!(request.entity_id, id);
+    assert_eq!(request.component_type, "PublicRecord");
+    let entity = app.world().resource::<DBConfig>().get_entity(&id).unwrap();
+    app.update();
+    assert!(server.try_recv().is_none());
+    assert_eq!(app.world().get::<PublicRecord>(target).unwrap().value, 0);
+
+    app.world_mut().entity_mut(entity).insert(PublicRecord { value: 42 });
+    app.update();
+    assert_eq!(app.world().get::<PublicRecord>(target).unwrap().value, 42);
+    assert!(server.try_recv().is_none());
+
+    let second_target = app.world_mut().spawn(PrivateRecord { value: 0 }).id();
+    let mut graph = BindingGraph::new();
+    let value = graph.source(BindingPath::new(
+        source, "RecordReference", Some("record.PrivateRecord.value"),
+    ).unwrap()).unwrap();
+    graph.bind(value, BindingPath::new(second_target, "PrivateRecord", Some("value")).unwrap()).unwrap();
+    graph.install(app.world_mut(), second_target).unwrap();
+    app.add_systems(Update, move |mut commands: FluxCommands| {
+        assert_eq!(commands.load_record_component::<PrivateRecord>(id), entity);
+        assert_eq!(commands.load_record_component::<PublicRecord>(id), entity);
+    });
+    app.update();
+    let request = server.try_recv().unwrap().get_ev::<TrackRecordComponentEvent>().unwrap();
+    assert_eq!(request.entity_id, id);
+    assert_eq!(request.component_type, "PrivateRecord");
+    assert!(server.try_recv().is_none());
+    app.update();
+    assert!(server.try_recv().is_none());
+
+    app.world_mut().entity_mut(entity).insert(PrivateRecord { value: 73 });
+    app.update();
+    assert_eq!(app.world().get::<PrivateRecord>(second_target).unwrap().value, 73);
+    assert_eq!(app.world().get::<PublicRecord>(target).unwrap().value, 42);
+    assert_eq!(app.world().resource::<DBConfig>().get_entity(&id), Some(entity));
+    assert!(server.try_recv().is_none());
+}
+
 #[test]
 fn record_specific_recipients_require_the_record() {
     let peers = AuthenticatedRecordPeers::default();
@@ -107,6 +179,53 @@ fn loading_a_record_twice_reuses_its_entity() {
     assert_eq!(app.world().resource::<DBConfig>().get_entity(&id), Some(loaded[0]));
     let mut server = app.world().resource::<Session>().get_peer_channel(Id::nil());
     assert_eq!(server.try_recv().unwrap().get_ev::<TrackRecordEvent>().unwrap().entity_id, id);
+    assert!(server.try_recv().is_none());
+}
+
+#[test]
+fn component_requests_are_independent_and_reset_with_session_or_entity() {
+    let id = Id::new();
+    let mut app = App::new();
+    app.insert_resource(DBConfig {
+        #[cfg(feature = "surrealdb")]
+        db: std::sync::Arc::new(surrealdb::Surreal::init()),
+        id_mappings: Default::default(),
+        entity_mappings: Default::default(),
+    })
+    .insert_resource(Session::new(Id::new()))
+    .add_systems(Update, move |mut commands: FluxCommands| {
+        let first = commands.load_record_component::<PublicRecord>(id);
+        let second = commands.load_record_component::<PrivateRecord>(id);
+        assert_eq!(first, second);
+        assert_eq!(first, commands.load_record_component::<PublicRecord>(id));
+    });
+    let mut server = app.world().resource::<Session>().get_peer_channel(Id::nil());
+    let assert_requests = |server: &mut Channel| {
+        let mut types = Vec::new();
+        while let Some(event) = server.try_recv() {
+            let request = event.get_ev::<TrackRecordComponentEvent>().unwrap();
+            assert_eq!(request.entity_id, id);
+            types.push(request.component_type);
+        }
+        types.sort();
+        assert_eq!(types, vec!["PrivateRecord", "PublicRecord"]);
+    };
+    app.update();
+    assert_requests(&mut server);
+    app.update();
+    assert!(server.try_recv().is_none());
+
+    let old_entity = app.world().resource::<DBConfig>().get_entity(&id).unwrap();
+    app.world_mut().despawn(old_entity);
+    app.update();
+    assert_requests(&mut server);
+    assert_ne!(app.world().resource::<DBConfig>().get_entity(&id), Some(old_entity));
+
+    app.insert_resource(Session::new(Id::new()));
+    let mut server = app.world().resource::<Session>().get_peer_channel(Id::nil());
+    app.update();
+    assert_requests(&mut server);
+    app.update();
     assert!(server.try_recv().is_none());
 }
 
