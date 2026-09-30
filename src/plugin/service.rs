@@ -27,6 +27,7 @@ pub enum CallError<E> {
 type Payload = Box<dyn Any + Send>;
 type Handler = Arc<dyn Fn(Executor, RequestContext, Payload) -> TaskResult<Payload> + Send + Sync>;
 
+/// Clones are registration snapshots. Construct clients after registering handlers.
 #[derive(Resource, Clone, Default)]
 pub struct ServiceRegistry {
     handlers: HashMap<TypeId, Handler>,

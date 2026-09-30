@@ -16,6 +16,8 @@ impl std::fmt::Display for ExecuteError {
 
 impl std::error::Error for ExecuteError {}
 
+/// Lazy owned work. Dropping it cancels pending work, not completed side effects.
+#[must_use = "tasks do nothing unless polled or awaited"]
 pub struct TaskResult<T, E = ExecuteError> {
     future: Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'static>>,
 }
@@ -60,6 +62,8 @@ impl Drop for ExecutorQueue {
 }
 
 impl Executor {
+    /// Queue a one-shot system when polled. Each invocation has fresh `Local` state;
+    /// persistent state belongs in resources, not event readers or system locals.
     pub fn run_system<Input, Output, Marker>(
         &self,
         system: impl IntoSystem<In<Input>, Output, Marker> + Send + 'static,

@@ -11,6 +11,31 @@ struct PrivateRecord { value: u32 }
 #[derive(Resource, Default)]
 struct LoadedEntities(Vec<Entity>);
 
+#[test]
+fn record_specific_recipients_require_the_record() {
+    let peers = AuthenticatedRecordPeers::default();
+    let owner = Id::new();
+    let owner_peer = Id::new();
+    peers.bind(owner_peer, owner);
+    peers.bind(Id::new(), Id::new());
+    let policy = RecordPolicy {
+        read: RecordReadAccess::Authorized,
+        ..RecordPolicy::default()
+    };
+    assert!(policy.can_read(owner, Some(owner)));
+    assert!(peers.readers(policy, owner).is_empty());
+
+    let mut policies = RecordPolicies::default();
+    policies.set::<PrivateRecord>(policy);
+    let record = PrivateRecord { value: 7 };
+    assert!(peers.authorized_readers(&policies, owner, &record).is_empty());
+    policies.set_read_rule::<PrivateRecord>(|id, principal, record| {
+        id == principal && record.value == 7
+    });
+    assert_eq!(peers.authorized_readers(&policies, owner, &record), vec![owner_peer]);
+    assert!(peers.authorized_readers(&policies, owner, &PrivateRecord { value: 8 }).is_empty());
+}
+
 #[cfg(feature = "surrealdb")]
 #[test]
 fn connected_database_without_preparation_becomes_ready() {

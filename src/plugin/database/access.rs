@@ -11,6 +11,7 @@ pub enum RecordReadAccess {
     Public,
     /// For per-user tables whose record ID is the authenticated user's ID.
     OwnerByRecordId,
+    /// Requires a record-specific rule installed with `RecordPolicies::set_read_rule`.
     Authorized,
     ServerOnly,
 }
@@ -46,6 +47,8 @@ impl RecordPolicy {
             automatic_persistence: false,
         }
     }
+    /// Preflight only: `Authorized` still requires `RecordPolicies::can_read_record`
+    /// after fetching the record and before sending any data.
     pub fn can_read(self, record_id: Id, principal: Option<Id>) -> bool {
         match self.read {
             RecordReadAccess::Public => true,
@@ -121,7 +124,12 @@ impl AuthenticatedRecordPeers {
             .get(&peer)
             .copied()
     }
+    /// Select recipients for policies that need only an ID. Record-specific policies
+    /// fail closed here; use `authorized_readers` with the actual record instead.
     pub fn readers(&self, policy: RecordPolicy, record_id: Id) -> Vec<Id> {
+        if policy.read == RecordReadAccess::Authorized {
+            return Vec::new();
+        }
         self.0
             .read()
             .expect("principal lock poisoned")
