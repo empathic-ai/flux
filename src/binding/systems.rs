@@ -42,8 +42,15 @@ impl FluxCommands<'_, '_> {
     }
 }
 
-// TODO: Add check to see whether entity already exists or not
 pub fn load_record(id: Id, db_config: &mut ResMut<DBConfig>, commands: &mut Commands) -> Entity {
+    if let Some(entity) = db_config.get_entity(&id) {
+        if commands.get_entity(entity).is_ok() {
+            return entity;
+        }
+        db_config.id_mappings.remove(&id);
+        db_config.entity_mappings.remove(&entity);
+    }
+
     info!("Loading record with ID: {:#}", id);
 
     let entity = commands

@@ -18,3 +18,8 @@ pub use extensions::*;
 mod surrealdb;
 #[cfg(feature = "surrealdb")]
 pub use surrealdb::*;
+
+#[cfg(feature = "surrealdb")]
+mod migrations;
+#[cfg(feature = "surrealdb")]
+pub use migrations::*;

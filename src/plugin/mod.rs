@@ -5,6 +5,21 @@ pub use database::*;
 mod commands;
 pub use commands::*;
 
+#[cfg(all(feature = "bevy_std", feature = "futures"))]
+mod executor;
+#[cfg(all(feature = "bevy_std", feature = "futures"))]
+pub use executor::*;
+
+#[cfg(all(feature = "bevy_std", feature = "futures"))]
+mod service;
+#[cfg(all(feature = "bevy_std", feature = "futures"))]
+pub use service::*;
+
+#[cfg(all(feature = "bevy_std", feature = "futures"))]
+mod rpc;
+#[cfg(all(feature = "bevy_std", feature = "futures"))]
+pub use rpc::*;
+
 #[cfg(feature = "futures")]
 use bevy_async_ecs::{AsyncEcsPlugin, AsyncWorld};
 #[cfg(feature = "tokio")]
@@ -98,26 +113,27 @@ impl Plugin for FluxPlugin {
         app.add_reactive::<ReactiveMapView>()
             .add_reactive::<ReactiveMapKey>();
 
-        app.insert_state(DbState::Connecting)
+        app.init_state::<DatabaseState>()
             .insert_resource(self.config.clone())
             .add_event::<NetworkEvent>()
             .add_event::<PeerEvent>()
             .add_systems(
                 Update,
-                relay_network_events.run_if(in_state(DbState::Connected)),
+                relay_network_events.run_if(in_state(DatabaseState::Ready)),
             )
             .add_systems(
                 PostUpdate,
                 (process_reactive_lists, process_reactive_maps)
                     .after(BindingGraphSet)
-                    .run_if(in_state(DbState::Connected)),
+                    .run_if(in_state(DatabaseState::Ready)),
             );
 
         #[cfg(feature = "subsecond")]
         app.add_plugins(SimpleSubsecondPlugin::default());
 
         #[cfg(feature = "surrealdb")]
-        app.add_systems(PreStartup, (startup, database::start).chain());
+        app.add_systems(PreStartup, (startup, database::start).chain())
+            .add_systems(OnEnter(DatabaseState::Connected), database::prepare_database);
 
         #[cfg(feature = "futures")]
         app.add_plugins((AsyncEcsPlugin));
@@ -150,7 +166,7 @@ pub fn relay_network_events(
     peer_evs.clear();
 
     //info!("Trying to receive network events...");
-    if let Some(ev) = session.get_channel_mut().try_recv() {
+    while let Some(ev) = session.get_channel_mut().try_recv() {
         //info!("Relaying network event {}!", ev.get_ev_name());
         network_evs.send(ev);
     }

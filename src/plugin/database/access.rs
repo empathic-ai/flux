@@ -11,6 +11,7 @@ pub enum RecordReadAccess {
     Public,
     /// For per-user tables whose record ID is the authenticated user's ID.
     OwnerByRecordId,
+    Authorized,
     ServerOnly,
 }
 
@@ -24,8 +25,8 @@ pub struct RecordPolicy {
 impl Default for RecordPolicy {
     fn default() -> Self {
         Self {
-            read: RecordReadAccess::Public,
-            client_writes: true,
+            read: RecordReadAccess::ServerOnly,
+            client_writes: false,
             automatic_persistence: true,
         }
     }
@@ -49,22 +50,51 @@ impl RecordPolicy {
         match self.read {
             RecordReadAccess::Public => true,
             RecordReadAccess::OwnerByRecordId => principal == Some(record_id),
+            RecordReadAccess::Authorized => principal.is_some(),
             RecordReadAccess::ServerOnly => false,
         }
     }
 }
 
+type ReadRule = Box<dyn Fn(Id, Id, &dyn Reflect) -> bool + Send + Sync>;
+
 #[derive(Resource, Default)]
-pub struct RecordPolicies(HashMap<String, RecordPolicy>);
+pub struct RecordPolicies {
+    policies: HashMap<String, RecordPolicy>,
+    read_rules: HashMap<String, ReadRule>,
+}
 impl RecordPolicies {
     pub fn set<T: FluxRecord>(&mut self, policy: RecordPolicy) {
-        self.0.insert(T::short_type_path().to_string(), policy);
+        self.policies.insert(T::short_type_path().to_string(), policy);
     }
     pub fn get<T: FluxRecord>(&self) -> RecordPolicy {
-        self.0
+        self.policies
             .get(T::short_type_path())
             .copied()
             .unwrap_or_default()
+    }
+
+    pub fn set_read_rule<T: FluxRecord>(
+        &mut self,
+        rule: impl Fn(Id, Id, &T) -> bool + Send + Sync + 'static,
+    ) {
+        self.read_rules.insert(
+            T::short_type_path().to_string(),
+            Box::new(move |record_id, principal, record| {
+                record.downcast_ref::<T>().is_some_and(|record| rule(record_id, principal, record))
+            }),
+        );
+    }
+
+    pub fn can_read_record<T: FluxRecord>(&self, id: Id, principal: Option<Id>, record: &T) -> bool {
+        let policy = self.get::<T>();
+        if policy.read == RecordReadAccess::Authorized {
+            return principal.is_some_and(|principal| {
+                self.read_rules.get(T::short_type_path())
+                    .is_some_and(|rule| rule(id, principal, record))
+            });
+        }
+        policy.can_read(id, principal)
     }
 }
 
@@ -99,6 +129,16 @@ impl AuthenticatedRecordPeers {
             .filter_map(|(peer, user)| policy.can_read(record_id, Some(*user)).then_some(*peer))
             .collect()
     }
+
+    pub fn authorized_readers<T: FluxRecord>(
+        &self, policies: &RecordPolicies, record_id: Id, record: &T,
+    ) -> Vec<Id> {
+        self.0.read().expect("principal lock poisoned").iter()
+            .filter_map(|(peer, principal)| {
+                policies.can_read_record(record_id, Some(*principal), record).then_some(*peer)
+            })
+            .collect()
+    }
 }
 
 /// Block the direct database path as well as the Flux transport path. Server credentials
@@ -120,6 +160,15 @@ pub async fn restrict_record_table<T: FluxRecord>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unconfigured_records_deny_client_access_without_disabling_persistence() {
+        let id = Id::from("10000000-0000-0000-0000-000000000001");
+        let policy = RecordPolicy::default();
+        assert!(!policy.can_read(id, None));
+        assert!(!policy.can_read(id, Some(id)));
+        assert!(!policy.client_writes);
+        assert!(policy.automatic_persistence);
+    }
     #[test]
     fn owner_policy_rejects_anonymous_and_other_accounts() {
         let owner = Id::from("10000000-0000-0000-0000-000000000001");

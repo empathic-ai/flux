@@ -138,6 +138,9 @@ where
             return;
         };
 
+        if let Some(mut config) = world.get_resource_mut::<DBConfig>() {
+            config.insert_entity(&self.id, entity);
+        }
         world.entity_mut(entity).insert(self.record);
 
         let mut system_state: SystemState<(Query<&mut T>, S::Param)> = SystemState::new(world);
@@ -151,6 +154,10 @@ where
 
 pub trait AsyncDbCommandsExt {
     async fn upsert_record<T>(&self, id: Id, record: T) -> Id
+    where
+        T: FluxRecord;
+
+    async fn try_upsert_record<T>(&self, id: Id, record: T) -> anyhow::Result<Id>
     where
         T: FluxRecord;
 
@@ -169,6 +176,26 @@ pub trait AsyncDbCommandsExt {
     async fn get_records<T, O, S, SM>(&self, system: S)
     where
         S: GetRecordsSys<T, O, SM>;
+
+    #[cfg(feature = "surrealdb")]
+    async fn try_db_query_raw<T, V>(
+        &self,
+        statement: impl Into<String>,
+        variables: V,
+    ) -> anyhow::Result<Vec<(Id, T)>>
+    where
+        T: Serialize + DeserializeOwned + Send + 'static,
+        V: IntoVariables + Send + 'static;
+
+    #[cfg(feature = "surrealdb")]
+    async fn try_db_query_one_raw<T, V>(
+        &self,
+        statement: impl Into<String>,
+        variables: V,
+    ) -> anyhow::Result<Option<(Id, T)>>
+    where
+        T: Serialize + DeserializeOwned + Send + 'static,
+        V: IntoVariables + Send + 'static;
 
     #[cfg(feature = "surrealdb")]
     async fn db_query_raw<T, V, S, SM>(
@@ -198,6 +225,13 @@ impl AsyncDbCommandsExt for AsyncWorld {
     where
         T: FluxRecord,
     {
+        self.try_upsert_record(id, record).await.expect("Failed to persist record")
+    }
+
+    async fn try_upsert_record<T>(&self, id: Id, record: T) -> anyhow::Result<Id>
+    where
+        T: FluxRecord,
+    {
         let type_name = T::short_type_path();
 
         let mut is_record = false;
@@ -220,20 +254,20 @@ impl AsyncDbCommandsExt for AsyncWorld {
                     let db = db_config.db.clone();
 
                     tasks.spawn_auto(async move |_| {
-                        let result: Option<SerdeWrapper<T>> = db
-                            .upsert((type_name.to_string(), id.to_string()))
+                        let result: anyhow::Result<Option<SerdeWrapper<T>>> = db
+                            .upsert((type_name.to_string(), id.to_pretty_string()))
                             .content(SerdeWrapper(_record))
                             .await
-                            .unwrap();
+                            .map_err(Into::into);
                         //info!("Added record of type {} to database! ID: {}", type_name, id);
-                        output_tx.send(()).await;
+                        let _ = output_tx.send(result.map(|_| ())).await;
                     });
                 }
                 system_state.apply(world);
             })
             .await;
 
-            output_rx.recv().await;
+            output_rx.recv().await.map_err(|_| anyhow::anyhow!("Record write task ended without a result"))??;
         }
 
         self.apply(move |world: &mut World| {
@@ -265,7 +299,7 @@ impl AsyncDbCommandsExt for AsyncWorld {
         .await;
 
         //self.apply(UpsertRecord::new(id, record)).await;
-        id
+        Ok(id)
     }
 
     async fn upsert_record_with_callback<T, S, SM>(&self, id: Id, record: T, mut system: S)
@@ -363,6 +397,68 @@ impl AsyncDbCommandsExt for AsyncWorld {
     }
 
     #[cfg(feature = "surrealdb")]
+    async fn try_db_query_raw<T, V>(
+        &self,
+        statement: impl Into<String>,
+        variables: V,
+    ) -> anyhow::Result<Vec<(Id, T)>>
+    where
+        T: Serialize + DeserializeOwned + Send + 'static,
+        V: IntoVariables + Send + 'static,
+    {
+        let statement = statement.into();
+        let (output_tx, output_rx) = async_channel::bounded(1);
+
+        self.apply(move |world: &mut World| {
+            let mut system_state: SystemState<(Tasks, Res<DBConfig>)> = SystemState::new(world);
+            let (tasks, db_config) = system_state.get_mut(world);
+            let db = db_config.db.clone();
+
+            tasks.spawn_auto(async move |_| {
+                let result = query_records::<T, V>(db, statement, variables).await;
+                let _ = output_tx.send(result).await;
+            });
+        })
+        .await;
+
+        output_rx
+            .recv()
+            .await
+            .map_err(|_| anyhow::anyhow!("Database query task ended without a result"))?
+    }
+
+    #[cfg(feature = "surrealdb")]
+    async fn try_db_query_one_raw<T, V>(
+        &self,
+        statement: impl Into<String>,
+        variables: V,
+    ) -> anyhow::Result<Option<(Id, T)>>
+    where
+        T: Serialize + DeserializeOwned + Send + 'static,
+        V: IntoVariables + Send + 'static,
+    {
+        let statement = statement.into();
+        let (output_tx, output_rx) = async_channel::bounded(1);
+
+        self.apply(move |world: &mut World| {
+            let mut system_state: SystemState<(Tasks, Res<DBConfig>)> = SystemState::new(world);
+            let (tasks, db_config) = system_state.get_mut(world);
+            let db = db_config.db.clone();
+
+            tasks.spawn_auto(async move |_| {
+                let result = query_record::<T, V>(db, statement, variables).await;
+                let _ = output_tx.send(result).await;
+            });
+        })
+        .await;
+
+        output_rx
+            .recv()
+            .await
+            .map_err(|_| anyhow::anyhow!("Database query task ended without a result"))?
+    }
+
+    #[cfg(feature = "surrealdb")]
     async fn db_query_raw<T, V, S, SM>(
         &self,
         statement: impl Into<String>,
@@ -387,7 +483,8 @@ impl AsyncDbCommandsExt for AsyncWorld {
                     Ok(records) => records,
                     Err(error) => {
                         error!("Flux database query failed: {error:#}");
-                        Vec::new()
+                        let _ = output_tx.send(()).await;
+                        return;
                     }
                 };
                 async_world
@@ -431,7 +528,8 @@ impl AsyncDbCommandsExt for AsyncWorld {
                     Ok(record) => record,
                     Err(error) => {
                         error!("Flux database query failed: {error:#}");
-                        None
+                        let _ = output_tx.send(()).await;
+                        return;
                     }
                 };
                 async_world
@@ -565,7 +663,15 @@ async fn try_get_record<T, O, S, SM>(
         .select((T::short_type_path(), id.to_pretty_string()))
         .await;
 
-    if let Ok(Some(mut record)) = record {
+    let record = match record {
+        Ok(record) => record,
+        Err(error) => {
+            tracing::error!(?error, record_type = T::short_type_path(), %id, "Failed to fetch record");
+            return;
+        }
+    };
+
+    if let Some(mut record) = record {
         let record = record.0;
         async_world
             .apply(move |world: &mut World| {
@@ -1040,7 +1146,7 @@ impl<'w, 's> DbCommandsExt for Commands<'w, 's> {
                     Ok(records) => records,
                     Err(error) => {
                         error!("Flux database query failed: {error:#}");
-                        Vec::new()
+                        return;
                     }
                 };
                 async_world
@@ -1080,7 +1186,7 @@ impl<'w, 's> DbCommandsExt for Commands<'w, 's> {
                     Ok(record) => record,
                     Err(error) => {
                         error!("Flux database query failed: {error:#}");
-                        None
+                        return;
                     }
                 };
                 async_world
@@ -1119,13 +1225,23 @@ fn spawn_record<T>(world: &mut World, id: Id, record: T)
 where
     T: Component<Mutability = Mutable> + Reflect + Typed + DeserializeOwned,
 {
-    info!(
-        "Spawning record of type {} with ID: {:#}",
-        T::short_type_path(),
-        id
-    );
+    let mapped_entity = world.get_resource::<DBConfig>().and_then(|config| config.get_entity(&id));
+    let entity = mapped_entity
+        .filter(|entity| world.get::<DBRecord>(*entity).is_some_and(|db_record| db_record.id == id))
+        .or_else(|| {
+            let mut query = world.query::<(Entity, &DBRecord)>();
+            query.iter(world).find(|(_, db_record)| db_record.id == id).map(|(entity, _)| entity)
+        });
 
-    world.spawn((DBRecord { id }, record));
+    let entity = if let Some(entity) = entity {
+        world.entity_mut(entity).insert(record);
+        entity
+    } else {
+        world.spawn((DBRecord { id }, record)).id()
+    };
+    if let Some(mut config) = world.get_resource_mut::<DBConfig>() {
+        config.insert_entity(&id, entity);
+    }
 }
 
 /*

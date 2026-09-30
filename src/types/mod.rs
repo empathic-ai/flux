@@ -127,11 +127,17 @@ pub struct PeerEvent {
 
 #[cfg_attr(feature = "bevy", derive(States))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub enum DbState {
+pub enum DatabaseState {
+    Disconnected,
     #[default]
     Connecting,
     Connected,
+    Preparing,
+    Ready,
+    Failed,
 }
+
+pub type DbState = DatabaseState;
 
 #[cfg_attr(feature = "bevy", derive(States))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]

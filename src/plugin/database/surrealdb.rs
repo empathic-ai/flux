@@ -8,6 +8,108 @@ use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use surrealdb::{Surreal, engine::any::Any, opt::auth::Root, types::SurrealValue};
 
+#[derive(Clone)]
+pub struct Database {
+    connection: Arc<Surreal<Any>>,
+}
+
+#[derive(Resource, Clone)]
+pub struct DatabasePreparation(
+    pub fn(Database) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>,
+);
+
+pub fn prepare_database(
+    mut commands: Commands,
+    config: Res<DBConfig>,
+    preparation: Option<Res<DatabasePreparation>>,
+    mut next: ResMut<NextState<DatabaseState>>,
+) {
+    let Some(preparation) = preparation else {
+        next.set(DatabaseState::Ready);
+        return;
+    };
+    let prepare = preparation.0;
+    let database = config.database();
+    next.set(DatabaseState::Preparing);
+    commands.run(async move |world| {
+        let state = match prepare(database.clone()).await {
+            Ok(()) => DatabaseState::Ready,
+            Err(error) => {
+                tracing::error!(%error, "Database preparation failed");
+                DatabaseState::Failed
+            }
+        };
+        world.apply(move |world: &mut World| {
+            if world.get_resource::<DBConfig>().is_some_and(|config| Arc::ptr_eq(&config.db, &database.connection))
+                && matches!(world.resource::<State<DatabaseState>>().get(), DatabaseState::Connected | DatabaseState::Preparing)
+            {
+                world.resource_mut::<NextState<DatabaseState>>().set(state);
+            }
+        }).await;
+    });
+}
+
+impl DBConfig {
+    pub fn database(&self) -> Database {
+        Database { connection: self.db.clone() }
+    }
+}
+
+impl Database {
+    pub async fn create_record_pair<First: FluxRecord, Second: FluxRecord>(
+        &self, first_id: Id, first: First, second_id: Id, second: Second,
+    ) -> anyhow::Result<()> {
+        use surrealdb::types::SerdeWrapper;
+        let mut response = self.connection.query(
+            "BEGIN TRANSACTION;
+             CREATE type::record($first_table, $first_id) CONTENT $first;
+             CREATE type::record($second_table, $second_id) CONTENT $second;
+             COMMIT TRANSACTION;"
+        )
+            .bind(("first_table", First::short_type_path()))
+            .bind(("first_id", first_id.to_pretty_string()))
+            .bind(("first", SerdeWrapper(first)))
+            .bind(("second_table", Second::short_type_path()))
+            .bind(("second_id", second_id.to_pretty_string()))
+            .bind(("second", SerdeWrapper(second)))
+            .await?;
+        let mut errors: Vec<_> = response.take_errors().into_iter().collect();
+        errors.sort_by_key(|(index, _)| *index);
+        anyhow::ensure!(errors.is_empty(), "Record transaction failed: {}", errors.into_iter()
+            .map(|(index, error)| format!("statement {index}: {error}"))
+            .collect::<Vec<_>>().join("; "));
+        Ok(())
+    }
+
+    pub fn from_connection(connection: Arc<Surreal<Any>>) -> Self {
+        Self { connection }
+    }
+
+    pub async fn upsert_record<T: FluxRecord>(&self, id: Id, record: T) -> anyhow::Result<()> {
+        upsert_record(&self.connection, id, record).await
+    }
+
+    pub async fn create_record<T: FluxRecord>(&self, id: Id, record: T) -> anyhow::Result<Option<T>> {
+        use surrealdb::types::SerdeWrapper;
+        let created: Option<SerdeWrapper<T>> = self.connection
+            .create((T::short_type_path(), id.to_pretty_string()))
+            .content(SerdeWrapper(record)).await?;
+        Ok(created.map(|record| record.0))
+    }
+
+    pub async fn restrict_record_table<T: FluxRecord>(&self) -> anyhow::Result<()> {
+        restrict_record_table::<T>(&self.connection).await
+    }
+
+    pub async fn run_migrations(&self, migrations: &[Migration]) -> anyhow::Result<()> {
+        run_migrations_on(&self.connection, migrations).await
+    }
+
+    pub async fn get_record<T: FluxRecord>(&self, id: Id) -> anyhow::Result<Option<T>> {
+        get_record::<T>(&self.connection, id).await
+    }
+}
+
 #[derive(Debug, SurrealValue, Serialize, Deserialize)]
 pub struct Record {
     #[allow(dead_code)]
@@ -65,17 +167,26 @@ pub fn start(config: Res<FluxConfig>, runner: Res<AsyncRunner>, tasks: Tasks) ->
             .insert_resource(Session::new(get_peer_id(api_url).await))
             .await;
 
-        let db = get_database().await.expect("Failed to connect to database");
+        let db = match get_database().await {
+            Ok(database) => database,
+            Err(error) => {
+                tracing::error!(%error, "Database connection failed");
+                async_world.register_system(|mut state: ResMut<NextState<DatabaseState>>| {
+                    state.set(DatabaseState::Failed);
+                }).await.run().await;
+                return;
+            }
+        };
 
         async_world
             .register_system(
-                move |mut commands: Commands, mut state: ResMut<NextState<DbState>>| {
+                move |mut commands: Commands, mut state: ResMut<NextState<DatabaseState>>| {
                     commands.insert_resource(DBConfig {
                         db: Arc::new(db.clone()),
                         id_mappings: Default::default(),
                         entity_mappings: Default::default(),
                     });
-                    state.set(DbState::Connected);
+                    state.set(DatabaseState::Connected);
                     //info!("Set state to connected!");
                 },
             )

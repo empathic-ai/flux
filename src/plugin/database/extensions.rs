@@ -69,8 +69,16 @@ impl DBConfig {
     }
 
     pub fn insert_entity(&mut self, id: &Id, entity: Entity) -> Entity {
-        self.id_mappings.insert(id.clone(), entity);
-        self.entity_mappings.insert(entity, id.clone());
+        if let Some(previous_entity) = self.id_mappings.insert(*id, entity) {
+            if previous_entity != entity {
+                self.entity_mappings.remove(&previous_entity);
+            }
+        }
+        if let Some(previous_id) = self.entity_mappings.insert(entity, *id) {
+            if previous_id != *id {
+                self.id_mappings.remove(&previous_id);
+            }
+        }
         entity
     }
 }
@@ -85,6 +93,202 @@ impl<T> Default for DBCache<T> {
         Self {
             cached_records: Default::default(),
         }
+    }
+}
+
+#[cfg(feature = "surrealdb")]
+#[derive(Clone, Copy, Debug)]
+pub struct RecordWriteTiming {
+    pub snapshot_window: std::time::Duration,
+    pub retry_delay: std::time::Duration,
+    pub max_starts_per_update: usize,
+    pub max_in_flight: usize,
+}
+
+#[cfg(feature = "surrealdb")]
+impl Default for RecordWriteTiming {
+    fn default() -> Self {
+        Self {
+            snapshot_window: std::time::Duration::ZERO,
+            retry_delay: std::time::Duration::from_secs(5),
+            max_starts_per_update: 64,
+            max_in_flight: 64,
+        }
+    }
+}
+
+#[cfg(feature = "surrealdb")]
+#[derive(Resource, Default)]
+pub struct RecordWriteTimings(HashMap<std::any::TypeId, RecordWriteTiming>);
+
+#[cfg(feature = "surrealdb")]
+impl RecordWriteTimings {
+    pub fn set<T: FluxRecord>(&mut self, timing: RecordWriteTiming) {
+        self.0.insert(std::any::TypeId::of::<T>(), timing);
+    }
+
+    pub fn get<T: FluxRecord>(&self) -> RecordWriteTiming {
+        self.0.get(&std::any::TypeId::of::<T>()).copied().unwrap_or_default()
+    }
+}
+
+#[cfg(feature = "surrealdb")]
+struct PendingWrite<T> {
+    pending: Option<T>,
+    in_flight: bool,
+    retry_at: Option<bevy::platform::time::Instant>,
+    dirty_since: Option<bevy::platform::time::Instant>,
+}
+
+#[cfg(feature = "surrealdb")]
+#[derive(Resource)]
+struct RecordWrites<T: Send + Sync + 'static> {
+    records: HashMap<Id, PendingWrite<T>>,
+    timing: RecordWriteTiming,
+}
+
+#[cfg(feature = "surrealdb")]
+impl<T: Send + Sync + 'static> Default for RecordWrites<T> {
+    fn default() -> Self {
+        Self { records: HashMap::new(), timing: RecordWriteTiming::default() }
+    }
+}
+
+#[cfg(feature = "surrealdb")]
+impl<T: Clone + Send + Sync + 'static> RecordWrites<T> {
+    fn enqueue(&mut self, id: Id, record: T) {
+        self.enqueue_at(id, record, bevy::platform::time::Instant::now());
+    }
+
+    fn enqueue_at(&mut self, id: Id, record: T, now: bevy::platform::time::Instant) {
+        let state = self.records.entry(id).or_insert(PendingWrite {
+            pending: None,
+            in_flight: false,
+            retry_at: None,
+            dirty_since: None,
+        });
+        state.dirty_since.get_or_insert(now);
+        state.pending = Some(record);
+    }
+
+    fn ready(&mut self, now: bevy::platform::time::Instant) -> Vec<(Id, T)> {
+        let in_flight = self.records.values().filter(|state| state.in_flight).count();
+        let capacity = self.timing.max_in_flight.saturating_sub(in_flight)
+            .min(self.timing.max_starts_per_update);
+        self.records.iter_mut().filter_map(|(id, state)| {
+            if state.in_flight || state.retry_at.is_some_and(|deadline| now < deadline) {
+                return None;
+            }
+            if state.dirty_since.is_some_and(|since| now.saturating_duration_since(since) < self.timing.snapshot_window) {
+                return None;
+            }
+            let record = state.pending.take()?;
+            state.in_flight = true;
+            state.dirty_since = None;
+            Some((*id, record))
+        }).take(capacity).collect()
+    }
+
+    fn complete(&mut self, id: Id, record: T, succeeded: bool, now: bevy::platform::time::Instant) {
+        let Some(state) = self.records.get_mut(&id) else { return };
+        state.in_flight = false;
+        if succeeded {
+            state.retry_at = None;
+            if state.pending.is_none() {
+                self.records.remove(&id);
+            }
+        } else {
+            state.pending.get_or_insert(record);
+            state.dirty_since.get_or_insert(now);
+            state.retry_at = Some(now + self.timing.retry_delay);
+        }
+    }
+}
+
+#[cfg(all(test, feature = "surrealdb"))]
+mod record_write_tests {
+    use super::*;
+    use bevy::platform::time::Instant;
+    use std::time::Duration;
+
+    #[test]
+    fn continuous_changes_do_not_postpone_snapshot() {
+        let mut writes = RecordWrites::default();
+        writes.timing.snapshot_window = Duration::from_secs(1);
+        let id = Id::new();
+        let now = Instant::now();
+        for update in 0..100 {
+            let tick = now + Duration::from_millis(update * 10);
+            writes.enqueue_at(id, update, tick);
+            assert!(writes.ready(tick).is_empty());
+        }
+        assert_eq!(writes.ready(now + Duration::from_secs(1)), vec![(id, 99)]);
+    }
+
+    #[test]
+    fn dispatch_limit_retains_undispatched_records() {
+        let mut writes = RecordWrites::default();
+        writes.timing.max_starts_per_update = 1;
+        let now = Instant::now();
+        writes.enqueue_at(Id::new(), 1, now);
+        writes.enqueue_at(Id::new(), 2, now);
+        assert_eq!(writes.ready(now).len(), 1);
+        assert_eq!(writes.ready(now).len(), 1);
+        assert!(writes.ready(now).is_empty());
+    }
+
+    #[test]
+    fn concurrent_limit_waits_for_an_acknowledgement() {
+        let mut writes = RecordWrites::default();
+        writes.timing.max_in_flight = 1;
+        let now = Instant::now();
+        writes.enqueue_at(Id::new(), 1, now);
+        writes.enqueue_at(Id::new(), 2, now);
+        let first = writes.ready(now);
+        assert_eq!(first.len(), 1);
+        assert!(writes.ready(now).is_empty());
+        writes.complete(first[0].0, first[0].1, true, now);
+        assert_eq!(writes.ready(now).len(), 1);
+    }
+
+    #[test]
+    fn acknowledgement_keeps_newer_changes_pending() {
+        let mut writes = RecordWrites::default();
+        let id = Id::new();
+        let now = Instant::now();
+        writes.enqueue(id, 1);
+        assert_eq!(writes.ready(now), vec![(id, 1)]);
+        writes.enqueue(id, 2);
+        writes.enqueue(id, 3);
+        assert!(writes.ready(now).is_empty());
+        writes.complete(id, 1, true, now);
+        assert_eq!(writes.ready(now), vec![(id, 3)]);
+        writes.complete(id, 3, true, now);
+        assert!(writes.records.is_empty());
+    }
+
+    #[test]
+    fn failure_retries_latest_value_after_backoff() {
+        let mut writes = RecordWrites::default();
+        let id = Id::new();
+        let now = Instant::now();
+        writes.enqueue(id, 1);
+        writes.ready(now);
+        writes.enqueue(id, 2);
+        writes.complete(id, 1, false, now);
+        assert!(writes.ready(now + Duration::from_secs(4)).is_empty());
+        assert_eq!(writes.ready(now + Duration::from_secs(5)), vec![(id, 2)]);
+    }
+
+    #[test]
+    fn failure_without_new_changes_retains_original_value() {
+        let mut writes = RecordWrites::default();
+        let id = Id::new();
+        let now = Instant::now();
+        writes.enqueue(id, 1);
+        writes.ready(now);
+        writes.complete(id, 1, false, now);
+        assert_eq!(writes.ready(now + Duration::from_secs(5)), vec![(id, 1)]);
     }
 }
 
@@ -336,6 +540,8 @@ where
 pub trait FluxRegisterExt {
     fn add_record<T: FluxRecord>(&mut self) -> &mut Self;
     fn add_record_with_policy<T: FluxRecord>(&mut self, policy: RecordPolicy) -> &mut Self;
+    #[cfg(feature = "surrealdb")]
+    fn add_record_with_timings<T: FluxRecord>(&mut self, timing: RecordWriteTiming) -> &mut Self;
     fn add_reactive<T: FluxRecord>(&mut self) -> &mut Self;
 }
 
@@ -348,18 +554,15 @@ impl FluxRegisterExt for App {
         //.add_systems(PostStartup, detect_db_changes::<T>)
 
         #[cfg(feature = "bevy_std")]
-        self.add_systems(PreUpdate, detect_db_changes::<T>.run_if(run_if_db))
-            .add_systems(
-                Update,
-                (handle_db_events::<T>, detect_db_changes::<T>)
-                    .chain()
-                    .run_if(run_if_db),
-            )
-            .add_systems(PostUpdate, detect_db_changes::<T>.run_if(run_if_db));
+        self.add_systems(Update, handle_db_events::<T>.run_if(run_if_db))
+            .add_systems(PostUpdate, detect_db_changes::<T>.after(BindingGraphSet).run_if(run_if_db));
+        #[cfg(feature = "surrealdb")]
+        self.init_resource::<RecordWrites<T>>()
+            .init_resource::<RecordWriteTimings>();
         //.add_systems(Update, handle_db_events::<T>.before(detect_db_changes::<T>))
 
         #[cfg(all(feature = "server", feature = "bevy_std"))]
-        self.add_systems(PostUpdate, replicate_owned_records::<T>.run_if(run_if_db));
+        self.add_systems(PostUpdate, replicate_owned_records::<T>.after(BindingGraphSet).run_if(run_if_db));
 
         self
     }
@@ -372,14 +575,23 @@ impl FluxRegisterExt for App {
         self
     }
 
+    #[cfg(feature = "surrealdb")]
+    fn add_record_with_timings<T: FluxRecord>(&mut self, timing: RecordWriteTiming) -> &mut Self {
+        self.add_record::<T>();
+        self.world_mut()
+            .resource_mut::<RecordWriteTimings>()
+            .set::<T>(timing);
+        self
+    }
+
     fn add_reactive<T: FluxRecord>(&mut self) -> &mut Self {
         self.register_component_as::<dyn Reactive, T>()
             .register_type::<T>()
     }
 }
 
-fn run_if_db(res: Option<Res<DBConfig>>) -> bool {
-    res.is_some()
+fn run_if_db(res: Option<Res<DBConfig>>, state: Option<Res<State<DatabaseState>>>) -> bool {
+    res.is_some() && state.is_some_and(|state| *state.get() == DatabaseState::Ready)
 }
 
 /*
@@ -429,10 +641,10 @@ fn handle_db_events<T: FluxRecord>(
                   peers: Res<AuthenticatedRecordPeers>,
                   policies: Res<RecordPolicies>| {
                 // Recheck at send time: a login may have changed while the DB read was pending.
-                if !policies.get::<T>().can_read(id, peers.principal(peer_id)) {
-                    return;
-                }
                 if let Some(record) = record.get() {
+                    if !policies.can_read_record(id, peers.principal(peer_id), record) {
+                        return;
+                    }
                     info!(
                         "Sending {:#}.{} to peer {:#}.",
                         id,
@@ -471,6 +683,7 @@ fn handle_db_events<T: FluxRecord>(
     }
 }
 
+#[cfg(feature = "bevy_std")]
 fn detect_db_changes<T: FluxRecord>(
     mut commands: Commands,
     mut db_config: ResMut<DBConfig>,
@@ -479,6 +692,8 @@ fn detect_db_changes<T: FluxRecord>(
     policies: Res<RecordPolicies>,
     peers: Res<AuthenticatedRecordPeers>,
     session: Res<Session>,
+    #[cfg(feature = "surrealdb")] mut writes: ResMut<RecordWrites<T>>,
+    #[cfg(feature = "surrealdb")] timings: Res<RecordWriteTimings>,
 ) {
     let policy = policies.get::<T>();
     if !policy.automatic_persistence {
@@ -490,18 +705,13 @@ fn detect_db_changes<T: FluxRecord>(
 
     #[cfg(feature = "surrealdb")]
     {
+        writes.timing = timings.get::<T>();
         for (entity, record, db_record) in set.iter_mut() {
             //changed_ev_writer.send(entity.clone());
             //println!("UPDATING DATABASE");
             //info!("Detected add or change in component. Type: {} ID: {}", type_name, db_record.id);
 
-            let db = db_config.db.clone();
-            let record = record.clone();
-            let id = db_record.id;
-
-            commands.run(async move |world| {
-                world.upsert_record(id, record).await;
-            });
+            writes.enqueue(db_record.id, record.clone());
 
             /*
             #[cfg(not(target_arch = "wasm32"))]
@@ -527,6 +737,20 @@ fn detect_db_changes<T: FluxRecord>(
                     .unwrap();
             });
             */
+        }
+        for (id, record) in writes.ready(bevy::platform::time::Instant::now()) {
+            let db = db_config.db.clone();
+            commands.run(async move |world| {
+                let result = upsert_record(&db, id, record.clone()).await;
+                if let Err(error) = &result {
+                    tracing::error!(record_type = T::short_type_path(), %id, %error, "Automatic record persistence failed; retaining pending write");
+                }
+                world.apply(move |world: &mut World| {
+                    world.resource_mut::<RecordWrites<T>>().complete(
+                        id, record, result.is_ok(), bevy::platform::time::Instant::now(),
+                    );
+                }).await;
+            });
         }
     }
     /*
@@ -584,11 +808,11 @@ fn replicate_owned_records<T: FluxRecord>(
     session: Res<Session>,
 ) {
     let policy = policies.get::<T>();
-    if policy.read != RecordReadAccess::OwnerByRecordId {
+    if !matches!(policy.read, RecordReadAccess::OwnerByRecordId | RecordReadAccess::Authorized) {
         return;
     }
     for (record, db_record) in &set {
-        for peer in peers.readers(policy, db_record.id) {
+        for peer in peers.authorized_readers(&policies, db_record.id, record) {
             session.get_multiplexer().send_ev(
                 Id::nil(),
                 peer,

@@ -28,10 +28,12 @@ pub struct MultiplexerChannel {
     // The last event index for this multiplexer channel
     last_ev: usize,
     num_receivers: usize,
+    next_receiver_id: usize,
     buffer: Vec<(usize, NetworkEvent)>,
-    /// Registered waker that will be called when a new event is sent.
-    waker: Option<Waker>,
+    wakers: HashMap<usize, Waker>,
 }
+
+const MAX_BUFFERED_EVENTS: usize = 1024;
 
 impl MultiplexerChannel {
     pub fn new(peer_id: Id) -> Self {
@@ -45,11 +47,18 @@ impl MultiplexerChannel {
         self.last_ev += 1;
         let lock_count = self.num_receivers.max(1);
         self.buffer.push((lock_count, ev));
+        if self.buffer.len() > MAX_BUFFERED_EVENTS {
+            let (_, discarded) = self.buffer.remove(0);
+            tracing::warn!(
+                peer_id = %self.peer_id,
+                event = %discarded.get_ev_name(),
+                capacity = MAX_BUFFERED_EVENTS,
+                "Multiplexer buffer overflow; dropped oldest network event"
+            );
+        }
 
-        if self.num_receivers > 0 {
-            if let Some(waker) = self.waker.take() {
-                waker.wake();
-            }
+        for (_, waker) in self.wakers.drain() {
+            waker.wake();
         }
     }
 
@@ -76,11 +85,10 @@ impl MultiplexerChannel {
         //}
 
         if self.buffer.len() < ev_dif {
-            *last_ev = self.last_ev;
-            return None;
+            *last_ev = self.last_ev - self.buffer.len();
         }
 
-        let ev_index = self.buffer.len() - ev_dif;
+        let ev_index = self.buffer.len() - (self.last_ev - *last_ev);
         let (lock_count, ev) = &mut self.buffer[ev_index];
 
         let ev = ev.clone();
@@ -98,6 +106,7 @@ impl MultiplexerChannel {
 
 pub struct Channel {
     id: Id,
+    receiver_id: usize,
     last_ev: usize,
     multiplexer: Multiplexer,
 }
@@ -113,11 +122,20 @@ impl Drop for Channel {
     fn drop(&mut self) {
         let mut channels = self.multiplexer.channels.write().unwrap();
         if let Some(ch) = channels.get_mut(&self.id) {
-            // decrement the number of active receivers
-            if ch.num_receivers > 0 {
-                ch.num_receivers -= 1;
+            ch.wakers.remove(&self.receiver_id);
+            let first_ev = ch.last_ev - ch.buffer.len() + 1;
+            for (index, (remaining, _)) in ch.buffer.iter_mut().enumerate() {
+                if first_ev + index > self.last_ev && ch.num_receivers > 0 {
+                    *remaining -= 1;
+                }
             }
-            // optional: if no receivers left and no buffered events, remove the entry
+            ch.num_receivers -= 1;
+            ch.buffer.retain(|(remaining, _)| *remaining > 0);
+            if ch.num_receivers == 0 {
+                for (remaining, _) in &mut ch.buffer {
+                    *remaining = 1;
+                }
+            }
             if ch.num_receivers == 0 && ch.buffer.is_empty() {
                 channels.remove(&self.id);
             }
@@ -184,7 +202,7 @@ impl Stream for Channel {
         }
 
         // No event yet: register the waker.
-        ch.waker = Some(cx.waker().clone());
+        ch.wakers.insert(self.receiver_id, cx.waker().clone());
 
         /*
         // Double-check: an event could have been sent right after the previous check.
@@ -221,6 +239,13 @@ impl Multiplexer {
         let mut channel = channels
             .entry(peer_id.clone())
             .or_insert_with(|| MultiplexerChannel::new(peer_id.clone()));
+        let last_ev = if channel.num_receivers == 0 {
+            channel.last_ev - channel.buffer.len()
+        } else {
+            channel.last_ev
+        };
+        let receiver_id = channel.next_receiver_id;
+        channel.next_receiver_id += 1;
         channel.num_receivers += 1;
         //info!("Added receiver for {}.", peer_id);
 
@@ -229,7 +254,8 @@ impl Multiplexer {
         // drain the queued backlog rather than starting at the channel's current
         // global counter.
         Channel {
-            last_ev: 0,
+            last_ev,
+            receiver_id,
             id: peer_id,
             multiplexer: self.clone(),
         }
