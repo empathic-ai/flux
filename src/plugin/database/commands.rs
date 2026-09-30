@@ -23,7 +23,7 @@ use surrealdb::types::SerdeWrapper;
 #[cfg(feature = "surrealdb")]
 use surrealdb::{Surreal, engine::any::Any, method::IntoVariables};
 
-trait UpsertSys<T, SM> = SystemParamFunction<SM> + 'static
+pub trait UpsertSys<T, SM> = SystemParamFunction<SM> + 'static
 where
     T: FluxRecord,
     SM: Send + Sync + 'static,
@@ -34,7 +34,7 @@ where
     // S’s Param must be a SystemParam and be 'static
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
-trait GetRecordSys<T, O, SM> = SystemParamFunction<SM, Out = O> + 'static
+pub trait GetRecordSys<T, O, SM> = SystemParamFunction<SM, Out = O> + 'static
 where
     T: FluxRecord,
     SM: Send + Sync + 'static,
@@ -45,7 +45,7 @@ where
     // S’s Param must be a SystemParam and be 'static
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
-trait TryGetRecordSys<T, O, SM> = SystemParamFunction<SM, Out = O> + 'static
+pub trait TryGetRecordSys<T, O, SM> = SystemParamFunction<SM, Out = O> + 'static
 where
     T: FluxRecord,
     SM: Send + Sync + 'static,
@@ -56,7 +56,7 @@ where
     // S’s Param must be a SystemParam and be 'static
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
-trait GetRecordsSys<T, O, SM> = SystemParamFunction<SM, Out = O> + 'static
+pub trait GetRecordsSys<T, O, SM> = SystemParamFunction<SM, Out = O> + 'static
 where
     T: FluxRecord,
     SM: Send + Sync + 'static,
@@ -67,28 +67,28 @@ where
     // S’s Param must be a SystemParam and be 'static
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
-trait QuerySys<T, SM> = SystemParamFunction<SM> + 'static
+pub trait QuerySys<T, SM> = SystemParamFunction<SM> + 'static
 where
     T: Serialize + DeserializeOwned + Send + 'static,
     SM: Send + Sync + 'static,
     for<'a> <Self as SystemParamFunction<SM>>::In: SystemInput<Inner<'a> = Vec<(Id, T)>>,
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
-trait QueryOneSys<T, SM> = SystemParamFunction<SM> + 'static
+pub trait QueryOneSys<T, SM> = SystemParamFunction<SM> + 'static
 where
     T: Serialize + DeserializeOwned + Send + 'static,
     SM: Send + Sync + 'static,
     for<'a> <Self as SystemParamFunction<SM>>::In: SystemInput<Inner<'a> = Option<(Id, T)>>,
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
-trait EcsQuerySys<T, SM> = SystemParamFunction<SM> + 'static
+pub trait EcsQuerySys<T, SM> = SystemParamFunction<SM> + 'static
 where
     T: FluxRecord,
     SM: Send + Sync + 'static,
     for<'a> <Self as SystemParamFunction<SM>>::In: SystemInput<Inner<'a> = Vec<(Id, T)>>,
     <Self as SystemParamFunction<SM>>::Param: SystemParam + 'static;
 
-trait EcsQueryOneSys<T, SM> = SystemParamFunction<SM> + 'static
+pub trait EcsQueryOneSys<T, SM> = SystemParamFunction<SM> + 'static
 where
     T: FluxRecord,
     SM: Send + Sync + 'static,
