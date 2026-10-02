@@ -12,6 +12,27 @@ struct SplitRecord { value: String }
 
 #[test]
 #[ignore = "Requires FLUX_MIGRATION_TEST_URL pointing to a disposable database server"]
+fn merging_fields_preserves_existing_target_and_is_restart_safe() {
+    bevy_wasm_tasks::Runtime::default().block_on(async {
+        let db = surrealdb::engine::any::connect(std::env::var("FLUX_MIGRATION_TEST_URL").unwrap()).await.unwrap();
+        db.use_ns("flux_tests").use_db(format!("merge_{}", Id::new().to_pretty_string())).await.unwrap();
+        let migrations = [Migration { id: "merge_value_v1", step: MigrationStep::MergeRecordField(
+            RecordFieldMove::new::<LegacyRecord, SplitRecord>("value"),
+        ) }];
+        db.query("CREATE LegacyRecord:one SET value = 'source'; CREATE SplitRecord:one SET unrelated = 'retained'; CREATE LegacyRecord:two SET value = 'source'; CREATE SplitRecord:two SET value = 'conflict';")
+            .await.unwrap().check().unwrap();
+        assert!(run_migrations_on(&db, &migrations).await.is_err());
+        db.query("IF (SELECT VALUE value FROM ONLY LegacyRecord:one) != 'source' { THROW 'Source changed'; }; IF (SELECT VALUE value FROM ONLY SplitRecord:one) != NONE { THROW 'Partial merge'; }; DELETE SplitRecord:two;")
+            .await.unwrap().check().unwrap();
+        run_migrations_on(&db, &migrations).await.unwrap();
+        run_migrations_on(&db, &migrations).await.unwrap();
+        db.query("IF (SELECT VALUE unrelated FROM ONLY SplitRecord:one) != 'retained' { THROW 'Unrelated field lost'; }; IF (SELECT VALUE value FROM ONLY SplitRecord:one) != 'source' { THROW 'Value lost'; }; IF (SELECT VALUE value FROM ONLY LegacyRecord:one) != NONE { THROW 'Source not removed'; }; IF array::len(SELECT * FROM _flux_migrations) != 1 { THROW 'Duplicate migration'; };")
+            .await.unwrap().check().unwrap();
+    });
+}
+
+#[test]
+#[ignore = "Requires FLUX_MIGRATION_TEST_URL pointing to a disposable database server"]
 fn atomic_record_pair_rolls_back_on_conflict() {
     bevy_wasm_tasks::Runtime::default().block_on(async {
         let endpoint = std::env::var("FLUX_MIGRATION_TEST_URL").unwrap();

@@ -815,7 +815,7 @@ fn replicate_owned_records<T: FluxRecord>(
     session: Res<Session>,
 ) {
     let policy = policies.get::<T>();
-    if !matches!(policy.read, RecordReadAccess::OwnerByRecordId | RecordReadAccess::Authorized) {
+    if policy.read == RecordReadAccess::ServerOnly {
         return;
     }
     for (record, db_record) in &set {

@@ -35,6 +35,21 @@ impl<T> BindingExpr<T> {
     pub fn erase(self) -> BindingExpr {
         BindingExpr::new(self.0)
     }
+
+    pub fn optional(self) -> BindingExpr<Option<T>>
+    where
+        T: FromReflect + bevy::reflect::Typed + bevy::reflect::GetTypeRegistration,
+    {
+        BindingExpr::new(ExprKind::Computed(Box::new(move |graph| {
+            let source = graph.add(self)?;
+            graph.map("optional", &[source], |mut values| {
+                let value = values.remove(0);
+                let value = value.map(|value| T::from_reflect(value.as_ref())
+                    .ok_or_else(|| anyhow!("Optional binding source has the wrong type"))).transpose()?;
+                Ok(Some(Box::new(value)))
+            })
+        })))
+    }
 }
 
 enum ExprKind {

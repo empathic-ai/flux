@@ -124,6 +124,19 @@ still validates the actual data.
 
 ### Inline binding expressions
 
+Use `process(source, |enabled| Ok(!enabled))` to invert a boolean, or combine
+multiple paths in a tuple to calculate visibility or other derived values.
+These computations belong to the graph and need no separate presentation system.
+
+`path!(entity, Model.value).into_binding_expr().optional()` exposes an unresolved
+source as `None` and a resolved source as `Some(value)`. Compose it with `process`
+to supply an empty list, loading label, or hidden state instead of retaining the
+previous destination. Reflected type mismatches remain errors, not missing data.
+An existing `Option<T>` source becomes `Option<Option<T>>`; this preserves the
+distinction between an unavailable source and a loaded optional field.
+This does not distinguish pending, denied, and nonexistent remote records: the
+record transport does not yet return those load outcomes.
+
 Use `process` for an ordinary function and `process_system` for a Bevy system.
 Both return a single-use `BindingExpr<Output>`, which owns a recipe rather than a node
 in an existing graph. Builders compile and install it automatically:

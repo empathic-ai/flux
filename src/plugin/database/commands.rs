@@ -284,7 +284,7 @@ impl AsyncDbCommandsExt for AsyncWorld {
                             .reflect_partial_eq(record.as_partial_reflect())
                             .is_none_or(|x| !x)
                         {
-                            _record.apply(record.as_partial_reflect());
+                            *_record = record.clone();
                         }
                         is_record = true;
                     }

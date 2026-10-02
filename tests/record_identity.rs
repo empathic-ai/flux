@@ -11,6 +11,61 @@ struct PrivateRecord { value: u32 }
 #[derive(Resource, Default)]
 struct LoadedEntities(Vec<Entity>);
 
+#[cfg(not(feature = "surrealdb"))]
+#[test]
+fn record_snapshot_removes_deleted_collection_entries() {
+    use std::{future::Future, task::{Context, Poll}};
+    use bevy_async_ecs::{AsyncEcsPlugin, AsyncWorld};
+
+    #[derive(Component, Reflect, Reactive, Clone, Debug, Serialize, Deserialize)]
+    struct SnapshotRecord { values: Vec<u32> }
+
+    let mut app = App::new();
+    app.add_plugins((AsyncEcsPlugin, bevy_wasm_tasks::TasksPlugin::default()))
+        .insert_resource(DBConfig { id_mappings: default(), entity_mappings: default() });
+    let id = Id::new();
+    let entity = app.world_mut().spawn((DBRecord { id }, SnapshotRecord { values: vec![1, 2] })).id();
+    let async_world = AsyncWorld::from_world(app.world_mut());
+    for values in [vec![2], vec![], vec![3]] {
+        let mut task = Box::pin(async_world.try_upsert_record(id, SnapshotRecord { values: values.clone() }));
+        let mut context = Context::from_waker(futures::task::noop_waker_ref());
+        assert!(matches!(task.as_mut().poll(&mut context), Poll::Ready(Ok(_))));
+        app.update();
+        assert_eq!(app.world().get::<SnapshotRecord>(entity).unwrap().values, values);
+    }
+}
+
+#[test]
+fn optional_binding_clears_missing_sources_and_recovers() {
+    use bevy_trait_query::RegisterExt;
+    let mut app = App::new();
+    app.add_plugins(BindingGraphPlugin)
+        .insert_resource(DBConfig {
+            #[cfg(feature = "surrealdb")]
+            db: std::sync::Arc::new(surrealdb::Surreal::init()),
+            id_mappings: default(), entity_mappings: default(),
+        });
+    app.register_component_as::<dyn Reactive, PublicRecord>();
+    let source = app.world_mut().spawn_empty().id();
+    let target = app.world_mut().spawn(PublicRecord { value: 99 }).id();
+    let mut graph = BindingGraph::new();
+    let output = graph.add(process(
+        path!(source, PublicRecord.value).into_binding_expr().optional(),
+        |value| Ok(value.unwrap_or_default()),
+    )).unwrap();
+    graph.bind(output, path!(target, PublicRecord.value)).unwrap();
+    graph.install(app.world_mut(), target).unwrap();
+    app.update();
+    assert_eq!(app.world().get::<PublicRecord>(target).unwrap().value, 0);
+    app.world_mut().entity_mut(source).insert(PublicRecord { value: 7 });
+    app.update();
+    assert_eq!(app.world().get::<PublicRecord>(target).unwrap().value, 7);
+    app.world_mut().entity_mut(source).remove::<PublicRecord>();
+    app.update();
+    assert_eq!(app.world().get::<PublicRecord>(target).unwrap().value, 0);
+    assert_eq!(app.world().resource::<BindingGraphs>().errors().count(), 0);
+}
+
 #[cfg(feature = "client")]
 #[derive(Component, Reflect, Reactive, Clone)]
 struct RecordReference { record: Id }

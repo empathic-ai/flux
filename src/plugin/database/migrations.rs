@@ -23,6 +23,7 @@ impl RecordFieldMove {
 #[derive(Clone, Copy, Debug)]
 pub enum MigrationStep {
     MoveRecordField(RecordFieldMove),
+    MergeRecordField(RecordFieldMove),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -57,6 +58,23 @@ fn field_move_sql(operation: RecordFieldMove) -> Result<String> {
     }}; }};"))
 }
 
+fn field_merge_sql(operation: RecordFieldMove) -> Result<String> {
+    let source = checked_identifier(operation.source_table)?;
+    let target = checked_identifier(operation.target_table)?;
+    let field = checked_identifier(operation.field)?;
+    ensure!(source != target, "A field move requires different tables");
+    Ok(format!("LET $sources = (SELECT id, `{field}` FROM `{source}` WHERE `{field}` != NONE);
+        IF array::len($sources) > 0 {{ FOR $source IN $sources {{
+        LET $target = type::record('{target}', record::id($source.id));
+        LET $existing = (SELECT * FROM ONLY $target);
+        IF $existing != NONE AND $existing.`{field}` != NONE AND $existing.`{field}` != $source.`{field}` {{
+            THROW 'Migration target conflicts with source';
+        }};
+        UPSERT $target SET `{field}` = $source.`{field}`;
+        UPDATE $source.id UNSET `{field}`;
+    }}; }};"))
+}
+
 pub async fn run_migrations(migrations: &[Migration]) -> Result<()> {
     let db = get_database().await?;
     run_migrations_on(&db, migrations).await
@@ -71,6 +89,7 @@ pub async fn run_migrations_on(db: &Surreal<Any>, migrations: &[Migration]) -> R
         ids.push(id.to_owned());
         definitions.push(match migration.step {
             MigrationStep::MoveRecordField(operation) => field_move_sql(operation)?,
+            MigrationStep::MergeRecordField(operation) => field_merge_sql(operation)?,
         });
     }
     let mut sql = String::from("BEGIN TRANSACTION;
@@ -112,5 +131,17 @@ mod tests {
         assert!(checked_identifier("DeviceNetworks_1").is_ok());
         assert!(checked_identifier("Device; DELETE User").is_err());
         assert!(checked_identifier("").is_err());
+    }
+
+    #[test]
+    fn merging_allows_missing_fields_without_changing_record_move_history() {
+        let operation = RecordFieldMove { source_table: "User", target_table: "PrivateUser", field: "email_address" };
+        let merge = field_merge_sql(operation).unwrap();
+        assert!(merge.contains("$existing.`email_address` != NONE"));
+        assert!(merge.contains("UPSERT $target SET `email_address`"));
+        assert!(merge.contains("UPDATE $source.id UNSET `email_address`"));
+        let original = field_move_sql(operation).unwrap();
+        assert!(!original.contains("UPSERT"));
+        assert!(!original.contains("$existing.`email_address` != NONE"));
     }
 }

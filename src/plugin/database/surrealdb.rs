@@ -108,6 +108,10 @@ impl Database {
     pub async fn get_record<T: FluxRecord>(&self, id: Id) -> anyhow::Result<Option<T>> {
         get_record::<T>(&self.connection, id).await
     }
+
+    pub async fn get_records<T: FluxRecord>(&self) -> anyhow::Result<Vec<(Id, T)>> {
+        get_records::<T>(self.connection.clone()).await
+    }
 }
 
 #[derive(Debug, SurrealValue, Serialize, Deserialize)]
