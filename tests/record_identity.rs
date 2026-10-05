@@ -11,6 +11,79 @@ struct PrivateRecord { value: u32 }
 #[derive(Resource, Default)]
 struct LoadedEntities(Vec<Entity>);
 
+#[test]
+fn reactive_only_registration_does_not_require_serialization_or_enable_records() {
+    #[derive(Component, Reflect, Reactive)]
+    struct LocalView { expanded: bool }
+
+    let mut app = App::new();
+    app.add_reactive::<LocalView>();
+    let entity = app.world_mut().spawn(LocalView { expanded: true }).id();
+    assert!(app.world().get::<LocalView>(entity).unwrap().expanded);
+    assert!(!app.world().contains_resource::<RecordPolicies>());
+    assert!(!app.world().contains_resource::<AuthenticatedRecordPeers>());
+    assert!(!app.world().contains_resource::<DBConfig>());
+}
+
+#[test]
+fn record_capabilities_are_independent_and_composable() {
+    let mut persistent = App::new();
+    persistent.add_persistent_record::<PublicRecord>();
+    assert_eq!(persistent.world().resource::<RecordRegistrations>().get::<PublicRecord>(), RecordCapabilities { persistent: true, networked: false });
+    assert!(!persistent.world().contains_resource::<AuthenticatedRecordPeers>());
+    persistent.update();
+    persistent.add_network_record::<PublicRecord>();
+    persistent.add_record::<PublicRecord>();
+    assert_eq!(persistent.world().resource::<RecordRegistrations>().get::<PublicRecord>(), RecordCapabilities { persistent: true, networked: true });
+
+    let mut network = App::new();
+    network.add_network_record::<PublicRecord>();
+    assert_eq!(network.world().resource::<RecordRegistrations>().get::<PublicRecord>(), RecordCapabilities { persistent: false, networked: true });
+    assert!(!network.world().contains_resource::<DBConfig>());
+    network.update();
+}
+
+#[test]
+fn network_only_record_requests_do_not_require_database_readiness() {
+    let mut app = App::new();
+    app.insert_resource(Session::new(Id::nil())).add_network_record::<PublicRecord>();
+    let owner = Id::new();
+    let peer = Id::new();
+    app.world_mut().resource_mut::<RecordPolicies>().set::<PublicRecord>(RecordPolicy::owner_read_only());
+    app.world().resource::<AuthenticatedRecordPeers>().bind(peer, owner);
+    app.world_mut().spawn((DBRecord { id: owner }, PublicRecord { value: 42 }));
+    let mut channel = app.world().resource::<Session>().get_peer_channel(peer);
+    app.world_mut().send_event(DbRequestEvent { db_record_id: owner, component_type: Some("PublicRecord".into()), peer_id: peer });
+    app.update();
+    let response = channel.try_recv().unwrap().get_ev::<AddComponentEvent>().unwrap();
+    assert_eq!(response.entity_id, Some(owner));
+    assert_eq!(response.component_type, "PublicRecord");
+    assert!(!app.world().contains_resource::<DBConfig>());
+}
+
+#[test]
+fn legacy_snapshots_never_authorize_client_replacements() {
+    let mut app = App::new();
+    app.insert_resource(Session::new(Id::nil())).add_network_record::<PublicRecord>();
+    let id = Id::new();
+    let entity = app.world_mut().spawn((DBRecord { id }, PublicRecord { value: 42 })).id();
+    app.world_mut().resource_mut::<RecordPolicies>().set::<PublicRecord>(RecordPolicy {
+        read: RecordReadAccess::Public, client_writes: true, automatic_persistence: false,
+    });
+    app.world_mut().send_event(DbReceiveEvent {
+        peer_id: Id::new(), db_record_id: id, component_type: "PublicRecord".into(),
+        component: PublicRecord { value: 99 }.to_dynamic_struct(),
+    });
+    app.update();
+    assert_eq!(app.world().get::<PublicRecord>(entity).unwrap().value, 42);
+    app.world_mut().send_event(DbReceiveEvent {
+        peer_id: Id::nil(), db_record_id: id, component_type: "PublicRecord".into(),
+        component: PublicRecord { value: 7 }.to_dynamic_struct(),
+    });
+    app.update();
+    assert_eq!(app.world().get::<PublicRecord>(entity).unwrap().value, if cfg!(feature = "server") { 42 } else { 7 });
+}
+
 #[cfg(not(feature = "surrealdb"))]
 #[test]
 fn record_snapshot_removes_deleted_collection_entries() {

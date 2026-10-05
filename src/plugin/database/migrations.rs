@@ -32,6 +32,17 @@ pub struct Migration {
     pub step: MigrationStep,
 }
 
+impl Migration {
+    pub fn schema_legacy_entry(&self) -> Result<crate::schema::database::LegacyEntry> {
+        checked_identifier(self.id)?;
+        let definition = match self.step {
+            MigrationStep::MoveRecordField(operation) => field_move_sql(operation)?,
+            MigrationStep::MergeRecordField(operation) => field_merge_sql(operation)?,
+        };
+        Ok(crate::schema::database::LegacyEntry { migration_id: self.id.into(), definition })
+    }
+}
+
 fn checked_identifier(identifier: &str) -> Result<&str> {
     ensure!(
         identifier.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphabetic())

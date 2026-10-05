@@ -8,6 +8,33 @@ use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use surrealdb::{Surreal, engine::any::Any, opt::auth::Root, types::SurrealValue};
 
+pub fn compile_surreal_query(plan: &QueryPlan, table: &str) -> anyhow::Result<String> {
+    fn identifier(value: &str) -> anyhow::Result<&str> {
+        anyhow::ensure!(!value.is_empty() && value.chars().all(|character| character.is_alphanumeric() || character == '_'), "Invalid query identifier: {value}");
+        Ok(value)
+    }
+    let mut statement = format!("SELECT * FROM `{}`", identifier(table)?);
+    for (index, condition) in plan.conditions.iter().enumerate() {
+        statement.push_str(if index == 0 { " WHERE " } else { " AND " });
+        let operator = match condition.comparison {
+            QueryComparison::Eq => "=", QueryComparison::Ne => "!=",
+            QueryComparison::Lt => "<", QueryComparison::Le => "<=",
+            QueryComparison::Gt => ">", QueryComparison::Ge => ">=",
+        };
+        statement.push_str(&format!("`{}` {operator} ${}", identifier(&condition.field)?, identifier(&condition.parameter)?));
+    }
+    if let Some(limit) = plan.limit { statement.push_str(&format!(" LIMIT {limit}")); }
+    Ok(statement)
+}
+
+pub(crate) fn lower_surreal_query<T: FluxRecord, V: QueryParameters>(
+    plan: Option<QueryPlan>, variables: V,
+) -> anyhow::Result<(String, surrealdb::types::SerdeWrapper<std::collections::BTreeMap<String, serde_json::Value>>)> {
+    let plan = plan.ok_or_else(|| anyhow!("ECS-only query cannot execute against a database"))?;
+    let table = crate::schema::database::record_table::<T>(T::short_type_path())?;
+    Ok((compile_surreal_query(&plan, &table)?, surrealdb::types::SerdeWrapper(variables.into_parameters()?)))
+}
+
 #[derive(Clone)]
 pub struct Database {
     connection: Arc<Surreal<Any>>,
@@ -56,6 +83,67 @@ impl DBConfig {
 }
 
 impl Database {
+    #[cfg(all(feature = "database_backup", not(target_arch = "wasm32")))]
+    pub async fn export_backup(&self, destination: &std::path::Path) -> anyhow::Result<u64> {
+        use futures::StreamExt;
+        use std::io::Write;
+        struct PartialExport(std::path::PathBuf);
+        impl Drop for PartialExport {
+            fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }
+        }
+        anyhow::ensure!(!destination.try_exists()?, "Backup destination already exists");
+        let parent = destination.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| std::path::Path::new("."));
+        let temporary = parent.join(format!(".flux-backup-{}.partial", uuid::Uuid::new_v4()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        let partial = PartialExport(temporary);
+        let mut stream = self.connection.export(()).await?;
+        let mut bytes = 0u64;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            file.write_all(&chunk)?;
+            bytes += chunk.len() as u64;
+        }
+        file.sync_all()?;
+        anyhow::ensure!(bytes > 0, "Database export was empty; do not use it as a backup");
+        std::fs::hard_link(&partial.0, destination)?;
+        drop(file);
+        drop(partial);
+        #[cfg(unix)]
+        std::fs::File::open(parent)?.sync_all()?;
+        Ok(bytes)
+    }
+
+    pub async fn load_versioned_record(&self, subject: &str, record_id: uuid::Uuid) -> anyhow::Result<Option<crate::schema::storage::StoredRecord>> {
+        use crate::schema::storage::VersionedRecordBackend;
+        crate::schema::database::SurrealRecordBackend(&self.connection).load(subject, record_id).await
+    }
+
+    pub async fn compare_exchange_versioned_record(
+        &self, catalog: &crate::schema::Catalog, record_id: uuid::Uuid, expected_revision: Option<u64>, payload: crate::schema::GraphValue,
+    ) -> anyhow::Result<crate::schema::storage::StoredRecord> {
+        use crate::schema::storage::VersionedRecordBackend;
+        crate::schema::database::SurrealRecordBackend(&self.connection).compare_exchange(catalog, record_id, expected_revision, payload).await
+    }
+
+    pub async fn patch_versioned_record(
+        &self, catalog: &crate::schema::Catalog, target: &crate::schema::GraphRef,
+        record_id: uuid::Uuid, expected_revision: u64, patch: crate::schema::GraphValue,
+    ) -> anyhow::Result<crate::schema::storage::StoredRecord> {
+        crate::schema::storage::patch_record(&crate::schema::database::SurrealRecordBackend(&self.connection), catalog, target, record_id, expected_revision, patch).await
+    }
+
+    pub async fn delete_versioned_record(&self, subject: &str, record_id: uuid::Uuid, expected_revision: u64) -> anyhow::Result<crate::schema::storage::StoredRecord> {
+        use crate::schema::storage::VersionedRecordBackend;
+        crate::schema::database::SurrealRecordBackend(&self.connection).delete(subject, record_id, expected_revision).await
+    }
+
     pub async fn create_record_pair<First: FluxRecord, Second: FluxRecord>(
         &self, first_id: Id, first: First, second_id: Id, second: Second,
     ) -> anyhow::Result<()> {
@@ -66,10 +154,10 @@ impl Database {
              CREATE type::record($second_table, $second_id) CONTENT $second;
              COMMIT TRANSACTION;"
         )
-            .bind(("first_table", First::short_type_path()))
+            .bind(("first_table", crate::schema::database::record_table::<First>(First::short_type_path())?))
             .bind(("first_id", first_id.to_pretty_string()))
             .bind(("first", SerdeWrapper(first)))
-            .bind(("second_table", Second::short_type_path()))
+            .bind(("second_table", crate::schema::database::record_table::<Second>(Second::short_type_path())?))
             .bind(("second_id", second_id.to_pretty_string()))
             .bind(("second", SerdeWrapper(second)))
             .await?;
@@ -92,7 +180,7 @@ impl Database {
     pub async fn create_record<T: FluxRecord>(&self, id: Id, record: T) -> anyhow::Result<Option<T>> {
         use surrealdb::types::SerdeWrapper;
         let created: Option<SerdeWrapper<T>> = self.connection
-            .create((T::short_type_path(), id.to_pretty_string()))
+            .create((crate::schema::database::record_table::<T>(T::short_type_path())?, id.to_pretty_string()))
             .content(SerdeWrapper(record)).await?;
         Ok(created.map(|record| record.0))
     }
@@ -103,6 +191,13 @@ impl Database {
 
     pub async fn run_migrations(&self, migrations: &[Migration]) -> anyhow::Result<()> {
         run_migrations_on(&self.connection, migrations).await
+    }
+
+    pub async fn verify_schema(
+        &self, catalog: &crate::schema::Catalog, legacy: &[crate::schema::database::LegacyEntry],
+    ) -> anyhow::Result<()> {
+        use crate::schema::storage::MigrationBackend;
+        crate::schema::database::SurrealMigrationBackend(&self.connection).verify(catalog, Some(legacy)).await
     }
 
     pub async fn get_record<T: FluxRecord>(&self, id: Id) -> anyhow::Result<Option<T>> {
@@ -211,7 +306,23 @@ pub fn start(
 
 /// Connect to the configured SurrealDB
 pub async fn get_database() -> anyhow::Result<Surreal<Any>> {
-    let database_address = get_database_address()?;
+    connect_database(get_database_address()?).await
+}
+
+#[cfg(feature = "database_backup")]
+pub async fn get_backup_database() -> anyhow::Result<Surreal<Any>> {
+    let address = get_database_address()?;
+    let address = if let Some(rest) = address.strip_prefix("ws://") {
+        format!("http://{rest}")
+    } else if let Some(rest) = address.strip_prefix("wss://") {
+        format!("https://{rest}")
+    } else {
+        address
+    };
+    connect_database(address).await
+}
+
+async fn connect_database(database_address: String) -> anyhow::Result<Surreal<Any>> {
 
     #[cfg(feature = "server")]
     let namespace =

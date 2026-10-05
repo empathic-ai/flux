@@ -23,6 +23,11 @@ pub struct RecordPolicy {
     /// False for service-owned records persisted explicitly before publishing an ECS update.
     pub automatic_persistence: bool,
 }
+
+pub(crate) fn accepts_legacy_record_snapshot(peer_id: Id) -> bool {
+    cfg!(not(feature = "server")) && peer_id == Id::nil()
+}
+
 impl Default for RecordPolicy {
     fn default() -> Self {
         Self {
@@ -155,7 +160,7 @@ impl AuthenticatedRecordPeers {
 pub async fn restrict_record_table<T: FluxRecord>(
     db: &surrealdb::Surreal<surrealdb::engine::any::Any>,
 ) -> anyhow::Result<()> {
-    let table = T::short_type_path();
+    let table = crate::schema::database::record_table::<T>(T::short_type_path())?;
     anyhow::ensure!(
         table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
         "Invalid record table name"

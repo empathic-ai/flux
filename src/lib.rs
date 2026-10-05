@@ -51,6 +51,9 @@ pub mod multiplexer;
 #[cfg(feature = "bevy_reflect")]
 pub mod serialization;
 
+#[cfg(feature = "schema")]
+pub mod schema;
+
 pub mod prelude {
     #[cfg(feature = "bevy")]
     pub use crate::binding::*;

@@ -6,7 +6,8 @@ exclude = ["/examples"]
 
 [features]
 default = ["bevy_std", "bevy_ui", "futures", "tokio"]
-bevy_reflect = ["serde", "flux_core/bevy_reflect", "dep:bevy_reflect", "reflect-steroids"]
+bevy_reflect = ["schema", "flux_core/bevy_reflect", "dep:bevy_reflect", "reflect-steroids"]
+schema = ["serde", "dep:sha2", "dep:inventory", "dep:bevy_platform", "uuid/serde"]
 bevy = ["dep:bevy", "bevy_reflect", "flux_core/bevy", "common/bevy", "bevy-trait-query"]
 bevy_ui = ["bevy", "bevy/bevy_ui", "bevy/bevy_ui_debug"]
 serde = ["dep:serde", "dep:serde_json", "dep:serde_with"]
@@ -18,11 +19,13 @@ futures = ["bevy-async-ecs", "dep:futures", "futures-util", "future_handles"]
 server = ["dioxus-cli-config", "http_server"] # "dioxus-fullstack/server"
 client = []
 surrealdb = ["dep:surrealdb", "castaway"]
+database_backup = ["surrealdb", "surrealdb/protocol-http"]
 bevy_std = ["bevy", "common/bevy_std", "bevy/bevy_log"]
 http_server = ["axum"]
 subsecond = ["bevy_std", "bevy_simple_subsecond_system"]
 
 [dependencies]
+bevy_platform = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["alloc"], optional = true }
 bevy_reflect = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["uuid"], optional = true }
 bevy = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["serialize", "bevy_state", "bevy_color", "track_location"], optional = true }
 bevy_simple_subsecond_system = { git = "https://github.com/Catchawink/bevy_simple_subsecond_system.git", branch = "reflect/serializable-dynamic-types", optional = true }
@@ -39,6 +42,8 @@ documented = "0.1.2"
 # TODO: Replace with crates.io reference once Tonic officially supports Axum v0.8
 tonic = { version = "0.12.3", default-features = false, features = ["prost", "codegen"], optional = true }
 serde_json = { version = "1.0", optional = true }
+sha2 = { version = "0.10", optional = true }
+inventory = { version = "0.3", optional = true }
 serde_with = { version = "3.12.0", optional = true }
 futures = { version = "0.3.25", optional = true }
 futures-util = { version = "0.3.31", optional = true }

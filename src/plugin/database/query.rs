@@ -9,6 +9,48 @@ use std::marker::PhantomData;
 
 use crate::prelude::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueryComparison { Eq, Ne, Lt, Le, Gt, Ge }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueryCondition {
+    pub field: String,
+    pub comparison: QueryComparison,
+    pub parameter: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueryPlan {
+    pub conditions: Vec<QueryCondition>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Default)]
+pub struct QueryBindings {
+    pub(crate) values: std::collections::BTreeMap<String, serde_json::Value>,
+    pub(crate) error: Option<String>,
+}
+
+impl QueryBindings {
+    pub fn insert(&mut self, name: String, value: &impl serde::Serialize) {
+        match serde_json::to_value(value) {
+            Ok(value) => { self.values.insert(name, value); }
+            Err(error) => { self.error = Some(error.to_string()); }
+        }
+    }
+}
+
+pub trait QueryParameters {
+    fn into_parameters(self) -> anyhow::Result<std::collections::BTreeMap<String, serde_json::Value>>;
+}
+
+impl QueryParameters for QueryBindings {
+    fn into_parameters(self) -> anyhow::Result<std::collections::BTreeMap<String, serde_json::Value>> {
+        anyhow::ensure!(self.error.is_none(), "Query binding serialization failed: {}", self.error.unwrap_or_default());
+        Ok(self.values)
+    }
+}
+
 /// Cardinality marker for an expression that may return zero or more records.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct QueryMany;
@@ -23,7 +65,7 @@ pub struct QueryOne;
 /// the default `()` filter; ECS-only expressions may set it to `With<T>`, `Without<T>`,
 /// `Changed<T>`, or a tuple of Bevy query filters.
 pub struct QueryExpr<T, C, V, P, F = ()> {
-    pub(crate) statement: String,
+    pub(crate) plan: Option<QueryPlan>,
     pub(crate) variables: V,
     pub(crate) predicate: P,
     pub(crate) limit: Option<usize>,
@@ -31,9 +73,9 @@ pub struct QueryExpr<T, C, V, P, F = ()> {
 }
 
 impl<T, C, V, P, F> QueryExpr<T, C, V, P, F> {
-    pub fn new(statement: String, variables: V, predicate: P, limit: Option<usize>) -> Self {
+    pub fn new(plan: Option<QueryPlan>, variables: V, predicate: P, limit: Option<usize>) -> Self {
         Self {
-            statement,
+            plan,
             variables,
             predicate,
             limit,

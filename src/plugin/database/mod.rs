@@ -8,6 +8,9 @@ pub use commands::*;
 mod query;
 pub use query::*;
 
+mod replica;
+pub use replica::*;
+
 mod access;
 pub use access::*;
 

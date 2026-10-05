@@ -1,5 +1,6 @@
 use super::{CallError, Executor, RequestContext, ServiceRegistry, ServiceRequest, TaskResult};
 use crate::prelude::Id;
+use crate::schema::wire::ServiceContractSet;
 use bevy::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{collections::HashMap, future::Future, pin::Pin, sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}}, time::Duration};
@@ -10,6 +11,23 @@ pub const RPC_MAX_TIMEOUT_MS: u32 = 30_000;
 
 pub trait WireRequest: ServiceRequest + Serialize + DeserializeOwned {
     const OPERATION: &'static str;
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(bound(serialize = "Call: Serialize", deserialize = "Call: Deserialize<'de>"), deny_unknown_fields)]
+struct ContractRequest<Request, Call, Reply> {
+    call: Call,
+    #[serde(skip)]
+    marker: std::marker::PhantomData<fn() -> (Request, Reply)>,
+}
+
+impl<Request: WireRequest, Call: Send + 'static, Reply: Send + 'static> ServiceRequest for ContractRequest<Request, Call, Reply> {
+    type Response = Reply;
+    type Error = Reply;
+}
+
+impl<Request: WireRequest, Call: Serialize + DeserializeOwned + Send + 'static, Reply: Send + 'static> WireRequest for ContractRequest<Request, Call, Reply> {
+    const OPERATION: &'static str = Request::OPERATION;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -91,6 +109,55 @@ impl RemoteServiceClient {
         Request::Response: DeserializeOwned,
         Request::Error: DeserializeOwned,
     {
+        self.call_as(request, Request::OPERATION.into())
+    }
+
+    pub fn call_versioned<Request>(&self, request: Request, contracts: impl ServiceContractSet) -> TaskResult<Request::Response, CallError<Request::Error>>
+    where
+        Request: WireRequest + crate::schema::Schema,
+        Request::Response: DeserializeOwned + crate::schema::Schema,
+        Request::Error: DeserializeOwned + crate::schema::Schema,
+    {
+        self.call_contracts::<Request, _>(request, contracts)
+    }
+
+    fn call_contracts<Request, Contracts: ServiceContractSet>(&self, request: Request, contracts: Contracts) -> TaskResult<Request::Response, CallError<Request::Error>>
+    where
+        Request: WireRequest + crate::schema::Schema,
+        Request::Response: DeserializeOwned + crate::schema::Schema,
+        Request::Error: DeserializeOwned + crate::schema::Schema,
+    {
+        let client = self.clone();
+        TaskResult::new(async move {
+            contracts.validate_types::<Request, Request::Response, Request::Error>()
+                .map_err(|_| CallError::Remote(RpcError::InvalidPayload))?;
+            let value = serde_json::to_value(request).map_err(|_| CallError::Remote(RpcError::InvalidPayload))?;
+            let call = contracts.call(value).map_err(|_| CallError::Remote(RpcError::InvalidPayload))?;
+            let request = ContractRequest::<Request, Contracts::Call, Contracts::Reply> { call: call.clone(), marker: std::marker::PhantomData };
+            match client.call_as(request, format!("{}{}", Request::OPERATION, Contracts::OPERATION_SUFFIX)).await {
+                Ok(reply) => {
+                    let value = contracts.decode_response(&call, reply)
+                        .map_err(|_| CallError::Remote(RpcError::InvalidReply))?;
+                    serde_json::from_value(value).map_err(|_| CallError::Remote(RpcError::InvalidReply))
+                }
+                Err(CallError::Application(reply)) => {
+                    let value = contracts.decode_error(&call, reply)
+                        .map_err(|_| CallError::Remote(RpcError::InvalidReply))?;
+                    let error = serde_json::from_value(value).map_err(|_| CallError::Remote(RpcError::InvalidReply))?;
+                    Err(CallError::Application(error))
+                }
+                Err(CallError::Remote(error)) => Err(CallError::Remote(error)),
+                Err(_) => Err(CallError::Remote(RpcError::HandlerFailed)),
+            }
+        })
+    }
+
+    fn call_as<Request>(&self, request: Request, operation: String) -> TaskResult<Request::Response, CallError<Request::Error>>
+    where
+        Request: WireRequest,
+        Request::Response: DeserializeOwned,
+        Request::Error: DeserializeOwned,
+    {
         let client = self.clone();
         TaskResult::new(async move {
             client.in_flight.fetch_update(Ordering::AcqRel, Ordering::Acquire,
@@ -103,7 +170,7 @@ impl RemoteServiceClient {
             }
             let request_id = Id::new();
             let envelope = RpcRequest {
-                version: RPC_VERSION, request_id, operation: Request::OPERATION.into(),
+                version: RPC_VERSION, request_id, operation,
                 timeout_ms: client.timeout_ms, payload,
             };
             let mut cancel = CancelOnDrop { transport: client.transport.clone(), request_id, armed: true };
@@ -197,6 +264,55 @@ pub struct WireServiceRegistry {
 }
 
 impl WireServiceRegistry {
+    pub fn expose_versioned<Request>(&mut self, contracts: impl ServiceContractSet) -> anyhow::Result<()>
+    where
+        Request: WireRequest + crate::schema::Schema,
+        Request::Response: Serialize + crate::schema::Schema,
+        Request::Error: Serialize + crate::schema::Schema,
+    {
+        self.expose_contracts::<Request, _>(contracts)
+    }
+
+    fn expose_contracts<Request, Contracts: ServiceContractSet>(&mut self, contracts: Contracts) -> anyhow::Result<()>
+    where
+        Request: WireRequest + crate::schema::Schema,
+        Request::Response: Serialize + crate::schema::Schema,
+        Request::Error: Serialize + crate::schema::Schema,
+    {
+        contracts.validate_types::<Request, Request::Response, Request::Error>()?;
+        anyhow::ensure!(!Request::OPERATION.is_empty(), "Wire operation ID cannot be empty");
+        let operation = format!("{}{}", Request::OPERATION, Contracts::OPERATION_SUFFIX);
+        anyhow::ensure!(!self.handlers.contains_key(&operation), "Duplicate versioned wire operation");
+        let contracts = Arc::new(contracts);
+        self.handlers.insert(operation, Arc::new(move |registry, executor, context, payload| {
+            let contracts = contracts.clone();
+            TaskResult::new(async move {
+                let mut decoder = serde_json::Deserializer::from_slice(&payload);
+                let value = crate::schema::wire::unique_value(&mut decoder).map_err(|_| RpcError::InvalidPayload)?;
+                decoder.end().map_err(|_| RpcError::InvalidPayload)?;
+                let envelope: ContractRequest<Request, Contracts::Call, Contracts::Reply> = serde_json::from_value(value).map_err(|_| RpcError::InvalidPayload)?;
+                let value = contracts.decode_request(&envelope.call).map_err(|_| RpcError::InvalidPayload)?;
+                let request = serde_json::from_value::<Request>(value).map_err(|_| RpcError::InvalidPayload)?;
+                let result = match registry.call(executor, context, request).await {
+                    Ok(response) => {
+                        let value = serde_json::to_value(response).map_err(|_| RpcError::HandlerFailed)?;
+                        Ok(contracts.encode_response(&envelope.call, value).map_err(|_| RpcError::HandlerFailed)?)
+                    }
+                    Err(CallError::Application(error)) => {
+                        let value = serde_json::to_value(error).map_err(|_| RpcError::HandlerFailed)?;
+                        Err(contracts.encode_error(&envelope.call, value).map_err(|_| RpcError::HandlerFailed)?)
+                    }
+                    Err(CallError::Unregistered) => return Err(RpcError::UnknownOperation),
+                    Err(_) => return Err(RpcError::HandlerFailed),
+                };
+                let payload = serde_json::to_vec(&result).map_err(|_| RpcError::HandlerFailed)?;
+                if payload.len() > RPC_MAX_PAYLOAD { return Err(RpcError::InvalidPayload); }
+                Ok(payload)
+            })
+        }));
+        Ok(())
+    }
+
     pub fn expose<Request>(&mut self)
     where
         Request: WireRequest,

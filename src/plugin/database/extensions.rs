@@ -510,7 +510,7 @@ pub async fn upsert_record<T: FluxRecord>(
     use surrealdb::types::SerdeWrapper;
 
     let o: Option<SerdeWrapper<T>> = db
-        .upsert((T::short_type_path(), id.to_pretty_string()))
+        .upsert((crate::schema::database::record_table::<T>(T::short_type_path())?, id.to_pretty_string()))
         .content(SerdeWrapper(record))
         .await?;
     Ok(())
@@ -521,7 +521,7 @@ pub async fn get_record<T: FluxRecord>(db: &Surreal<Any>, id: Id) -> anyhow::Res
     use surrealdb::types::SerdeWrapper;
 
     let o: Option<SerdeWrapper<T>> = db
-        .select((T::short_type_path(), id.to_pretty_string()))
+        .select((crate::schema::database::record_table::<T>(T::short_type_path())?, id.to_pretty_string()))
         .await?;
     Ok(o.map(|wrapper| wrapper.0))
 }
@@ -537,33 +537,73 @@ where
     pub record: T,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RecordCapabilities {
+    pub persistent: bool,
+    pub networked: bool,
+}
+
+#[derive(Resource, Default)]
+pub struct RecordRegistrations(HashMap<std::any::TypeId, RecordCapabilities>);
+
+impl RecordRegistrations {
+    pub fn get<T: FluxRecord>(&self) -> RecordCapabilities {
+        self.0.get(&std::any::TypeId::of::<T>()).copied().unwrap_or_default()
+    }
+}
+
 pub trait FluxRegisterExt {
     fn add_record<T: FluxRecord>(&mut self) -> &mut Self;
+    fn add_persistent_record<T: FluxRecord>(&mut self) -> &mut Self;
+    fn add_network_record<T: FluxRecord>(&mut self) -> &mut Self;
     fn add_record_with_policy<T: FluxRecord>(&mut self, policy: RecordPolicy) -> &mut Self;
     #[cfg(feature = "surrealdb")]
     fn add_record_with_timings<T: FluxRecord>(&mut self, timing: RecordWriteTiming) -> &mut Self;
-    fn add_reactive<T: FluxRecord>(&mut self) -> &mut Self;
+    fn add_reactive<T: Component + Reactive + GetTypeRegistration>(&mut self) -> &mut Self;
 }
 
 impl FluxRegisterExt for App {
     fn add_record<T: FluxRecord>(&mut self) -> &mut Self {
+        self.add_persistent_record::<T>().add_network_record::<T>()
+    }
+
+    fn add_persistent_record<T: FluxRecord>(&mut self) -> &mut Self {
+        self.init_resource::<RecordRegistrations>();
+        let capabilities = self.world_mut().resource_mut::<RecordRegistrations>().into_inner()
+            .0.entry(std::any::TypeId::of::<T>()).or_default();
+        if capabilities.persistent { return self; }
+        capabilities.persistent = true;
         self.init_resource::<RecordPolicies>()
-            .init_resource::<AuthenticatedRecordPeers>()
-            .insert_resource(DBCache::<T>::default())
+            .init_resource::<DBCache<T>>()
             .add_reactive::<T>();
-        //.add_systems(PostStartup, detect_db_changes::<T>)
 
         #[cfg(feature = "bevy_std")]
-        self.add_systems(Update, handle_db_events::<T>.run_if(run_if_db))
-            .add_systems(PostUpdate, detect_db_changes::<T>.after(BindingGraphSet).run_if(run_if_db));
+        self.add_systems(PostUpdate, detect_db_changes::<T>.after(BindingGraphSet).run_if(run_if_db));
         #[cfg(feature = "surrealdb")]
         self.init_resource::<RecordWrites<T>>()
             .init_resource::<RecordWriteTimings>();
-        //.add_systems(Update, handle_db_events::<T>.before(detect_db_changes::<T>))
+        self
+    }
 
+    fn add_network_record<T: FluxRecord>(&mut self) -> &mut Self {
+        self.init_resource::<RecordRegistrations>();
+        let capabilities = self.world_mut().resource_mut::<RecordRegistrations>().into_inner()
+            .0.entry(std::any::TypeId::of::<T>()).or_default();
+        if capabilities.networked { return self; }
+        capabilities.networked = true;
+        self.init_resource::<RecordPolicies>()
+            .init_resource::<AuthenticatedRecordPeers>()
+            .init_resource::<DBCache<T>>()
+            .add_reactive::<T>();
+        #[cfg(feature = "bevy_std")]
+        self.add_event::<DbRequestEvent>()
+            .add_event::<DbReceiveEvent>()
+            .add_systems(Update, (
+                handle_db_events::<T>.run_if(run_if_db).run_if(record_is_persistent::<T>),
+                handle_memory_record_events::<T>.run_if(run_if_network::<T>).run_if(not(record_is_persistent::<T>)),
+            ));
         #[cfg(all(feature = "server", feature = "bevy_std"))]
-        self.add_systems(PostUpdate, replicate_owned_records::<T>.after(BindingGraphSet).run_if(run_if_db));
-
+        self.add_systems(PostUpdate, replicate_owned_records::<T>.after(BindingGraphSet).run_if(run_if_network::<T>));
         self
     }
 
@@ -584,7 +624,7 @@ impl FluxRegisterExt for App {
         self
     }
 
-    fn add_reactive<T: FluxRecord>(&mut self) -> &mut Self {
+    fn add_reactive<T: Component + Reactive + GetTypeRegistration>(&mut self) -> &mut Self {
         self.register_component_as::<dyn Reactive, T>()
             .register_type::<T>()
     }
@@ -592,6 +632,48 @@ impl FluxRegisterExt for App {
 
 fn run_if_db(res: Option<Res<DBConfig>>, state: Option<Res<State<DatabaseState>>>) -> bool {
     res.is_some() && state.is_some_and(|state| *state.get() == DatabaseState::Ready)
+}
+
+fn record_is_persistent<T: FluxRecord>(registrations: Res<RecordRegistrations>) -> bool {
+    registrations.get::<T>().persistent
+}
+
+fn run_if_network<T: FluxRecord>(
+    registrations: Res<RecordRegistrations>, session: Option<Res<Session>>,
+    state: Option<Res<State<SessionState>>>, database: Option<Res<DBConfig>>,
+    database_state: Option<Res<State<DatabaseState>>>,
+) -> bool {
+    session.is_some() && state.is_none_or(|state| *state.get() == SessionState::Ready)
+        && (!registrations.get::<T>().persistent || run_if_db(database, database_state))
+}
+
+#[cfg(feature = "bevy_std")]
+fn handle_memory_record_events<T: FluxRecord>(
+    mut commands: Commands, records: Query<(Entity, &DBRecord, Option<&T>)>,
+    mut requests: EventReader<DbRequestEvent>, mut received: EventReader<DbReceiveEvent>,
+    policies: Res<RecordPolicies>, peers: Res<AuthenticatedRecordPeers>, session: Res<Session>,
+) {
+    for request in requests.read() {
+        if request.component_type.as_deref().is_some_and(|name| name != T::short_type_path()) { continue; }
+        if let Some((_, _, Some(record))) = records.iter().find(|(_, identity, _)| identity.id == request.db_record_id) {
+            if policies.can_read_record(request.db_record_id, peers.principal(request.peer_id), record) {
+                session.get_multiplexer().send_ev(Id::nil(), request.peer_id, AddComponentEvent {
+                    entity_id: Some(request.db_record_id), component_type: T::short_type_path().into(), component: record.to_dynamic_struct(),
+                });
+            }
+        }
+    }
+    let mut entities: HashMap<_, _> = records.iter().map(|(entity, identity, _)| (identity.id, entity)).collect();
+    for event in received.read() {
+        if event.component_type != T::short_type_path() { continue; }
+        if !super::access::accepts_legacy_record_snapshot(event.peer_id) { continue; }
+        if let Some(record) = T::from_dynamic(&event.component.to_dynamic_struct()) {
+            #[cfg(feature = "server")]
+            if !policies.can_read_record(event.db_record_id, peers.principal(event.peer_id), &record) { continue; }
+            let entity = *entities.entry(event.db_record_id).or_insert_with(|| commands.spawn(DBRecord { id: event.db_record_id }).id());
+            commands.entity(entity).insert(record);
+        }
+    }
 }
 
 /*
@@ -676,12 +758,7 @@ fn handle_db_events<T: FluxRecord>(
         if ev.component_type != T::short_type_path() {
             continue;
         }
-        #[cfg(feature = "server")]
-        if !policy.client_writes {
-            continue;
-        }
-        #[cfg(not(feature = "server"))]
-        if !policy.client_writes && ev.peer_id != Id::nil() {
+        if !super::access::accepts_legacy_record_snapshot(ev.peer_id) {
             continue;
         }
         if let Some(record) = T::from_dynamic(&ev.component.to_dynamic_struct()) {
@@ -697,8 +774,6 @@ fn detect_db_changes<T: FluxRecord>(
     mut set: Query<(Entity, &T, &DBRecord), (Or<(Added<T>, Changed<T>)>)>,
     mut cache: ResMut<DBCache<T>>,
     policies: Res<RecordPolicies>,
-    peers: Res<AuthenticatedRecordPeers>,
-    session: Res<Session>,
     #[cfg(feature = "surrealdb")] mut writes: ResMut<RecordWrites<T>>,
     #[cfg(feature = "surrealdb")] timings: Res<RecordWriteTimings>,
 ) {

@@ -238,6 +238,7 @@ impl AsyncDbCommandsExt for AsyncWorld {
 
         #[cfg(feature = "surrealdb")]
         {
+            let type_name = crate::schema::database::record_table::<T>(type_name)?;
             let (output_tx, output_rx) = async_channel::bounded(1);
 
             let _record = record.clone();
@@ -559,7 +560,7 @@ async fn upsert_record<T, O, S, SM>(
     S: UpsertSys<T, SM>,
 {
     let record: Option<SerdeWrapper<T>> = match db
-        .select((T::short_type_path(), id.to_pretty_string()))
+        .select((crate::schema::database::record_table::<T>(T::short_type_path()).expect("Invalid record storage mapping"), id.to_pretty_string()))
         .await
     {
         Ok(record) => record,
@@ -613,7 +614,7 @@ async fn get_record<T, O, S, SM>(
     S: GetRecordSys<T, O, SM>,
 {
     let record: Option<SerdeWrapper<T>> = db
-        .select((T::short_type_path(), id.to_pretty_string()))
+        .select((crate::schema::database::record_table::<T>(T::short_type_path()).expect("Invalid record storage mapping"), id.to_pretty_string()))
         .await
         .unwrap();
     if let Some(mut record) = record {
@@ -659,8 +660,15 @@ async fn try_get_record<T, O, S, SM>(
 ) where
     S: TryGetRecordSys<T, O, SM>,
 {
+    let table = match crate::schema::database::record_table::<T>(T::short_type_path()) {
+        Ok(table) => table,
+        Err(error) => {
+            tracing::error!(%error, "Invalid record storage mapping");
+            return;
+        }
+    };
     let record: Result<Option<SerdeWrapper<T>>, _> = db
-        .select((T::short_type_path(), id.to_pretty_string()))
+        .select((table, id.to_pretty_string()))
         .await;
 
     let record = match record {
@@ -783,7 +791,7 @@ fn is_missing_table(error: &surrealdb::types::Error) -> bool {
 pub async fn get_records<T: FluxRecord>(db: Arc<Surreal<Any>>) -> anyhow::Result<Vec<(Id, T)>> {
     use surrealdb::types::SurrealValue;
 
-    let o: Vec<SerdeWrapper<TypedRecord<T>>> = match db.select(T::short_type_path()).await {
+    let o: Vec<SerdeWrapper<TypedRecord<T>>> = match db.select(crate::schema::database::record_table::<T>(T::short_type_path())?).await {
         Ok(records) => records,
         Err(error) if is_missing_table(&error) => Vec::new(),
         Err(error) => return Err(error.into()),
@@ -849,8 +857,8 @@ pub trait DbCommandsExt {
         expression: QueryExpr<T, QueryMany, V, P, F>,
         system: S,
     ) where
-        T: Serialize + DeserializeOwned + Send + 'static,
-        V: IntoVariables + Send + 'static,
+        T: FluxRecord + Send + 'static,
+        V: QueryParameters + Send + 'static,
         S: QuerySys<T, SM>;
 
     #[cfg(feature = "surrealdb")]
@@ -864,8 +872,8 @@ pub trait DbCommandsExt {
         expression: QueryExpr<T, QueryOne, V, P, F>,
         system: S,
     ) where
-        T: Serialize + DeserializeOwned + Send + 'static,
-        V: IntoVariables + Send + 'static,
+        T: FluxRecord + Send + 'static,
+        V: QueryParameters + Send + 'static,
         S: QueryOneSys<T, SM>;
 
     #[cfg(feature = "surrealdb")]
@@ -1091,15 +1099,19 @@ impl<'w, 's> DbCommandsExt for Commands<'w, 's> {
         expression: QueryExpr<T, QueryMany, V, P, F>,
         system: S,
     ) where
-        T: Serialize + DeserializeOwned + Send + 'static,
-        V: IntoVariables + Send + 'static,
+        T: FluxRecord + Send + 'static,
+        V: QueryParameters + Send + 'static,
         S: QuerySys<T, SM>,
     {
         let QueryExpr {
-            statement,
+            plan,
             variables,
             ..
         } = expression;
+        let (statement, variables) = match super::surrealdb::lower_surreal_query::<T, V>(plan, variables) {
+            Ok(query) => query,
+            Err(error) => { error!("Flux database query failed: {error:#}"); return; }
+        };
         self.db_query_raw(statement, variables, system);
     }
 
@@ -1109,15 +1121,19 @@ impl<'w, 's> DbCommandsExt for Commands<'w, 's> {
         expression: QueryExpr<T, QueryOne, V, P, F>,
         system: S,
     ) where
-        T: Serialize + DeserializeOwned + Send + 'static,
-        V: IntoVariables + Send + 'static,
+        T: FluxRecord + Send + 'static,
+        V: QueryParameters + Send + 'static,
         S: QueryOneSys<T, SM>,
     {
         let QueryExpr {
-            statement,
+            plan,
             variables,
             ..
         } = expression;
+        let (statement, variables) = match super::surrealdb::lower_surreal_query::<T, V>(plan, variables) {
+            Ok(query) => query,
+            Err(error) => { error!("Flux database query failed: {error:#}"); return; }
+        };
         self.db_query_one_raw(statement, variables, system);
     }
 

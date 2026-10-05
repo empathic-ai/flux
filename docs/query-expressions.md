@@ -34,9 +34,12 @@ The record type supplies the database table name through Flux's existing
 as a bound value for SurrealDB and as a typed value for the ECS predicate. It
 is not interpolated into a query string.
 
-Portable binding expressions are evaluated once and cloned for the database
-binding, so they should implement `Clone`. The record field comparison is
-checked by Rust when the macro expansion is compiled.
+Portable binding expressions are evaluated once and serialized into Flux-owned
+JSON values, so they must implement `Serialize`. The original typed value is
+used by the ECS predicate. The record field comparison is checked by Rust when
+the macro expansion is compiled. Serialization failures are reported at database
+execution and do not invoke the handler. Use `bevy_query!` for values without a
+portable serialization. Native database-only values belong in raw queries.
 
 ## ECS execution
 
@@ -86,8 +89,8 @@ fn find_user_in_database(mut commands: Commands) {
 
 Database execution uses the generated table name and bound variables, then
 runs the handler back on the Bevy world. The handler receives the same plain
-value shape as ECS execution. Database failures are logged by Flux and mapped
-to an empty `Vec<(Id, T)>` or `None` before the handler runs.
+value shape as ECS execution. Database failures are logged by Flux; the handler
+is not invoked on failure.
 
 ## Bevy-specific predicates
 
@@ -157,3 +160,16 @@ portable `query` and `query_one` names reserved for ECS execution.
 The shared expression deliberately covers only semantics that can be represented
 by both backends. ECS-specific filters and predicates stay in `bevy_query!` so
 the API does not imply that SurrealDB has the same execution model.
+
+`QueryPlan` retains field comparisons, indexed parameter names, and limits;
+`QueryBindings` holds portable serialized values. Macros do not emit SQL or refer
+to the SurrealDB SDK. Repeated comparisons on one field receive separate bindings.
+The SurrealDB adapter validates identifiers and lowers the plan only when the
+database executor is selected. Table resolution uses the published schema catalog
+when a record has a managed identity.
+
+This is an extensible query representation, not a claim that runtime backend
+selection is complete. `DBConfig`, raw execution, and persistence still use the
+SurrealDB implementation. Another backend must implement execution and agree on
+value semantics, including absent versus null, UUID encoding, integer ranges, and
+cardinality. The existing raw methods deliberately remain SurrealDB-specific.
