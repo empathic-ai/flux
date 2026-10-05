@@ -3,7 +3,9 @@ use bevy_trait_query::RegisterExt;
 pub use database::*;
 
 mod session;
-pub use session::*;
+pub use session::Session;
+#[cfg(feature = "client")]
+pub use session::{is_session, register};
 
 mod commands;
 pub use commands::*;
