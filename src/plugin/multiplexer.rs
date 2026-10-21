@@ -14,6 +14,7 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Waker};
 use uuid::Uuid;
 
@@ -29,7 +30,7 @@ pub struct MultiplexerChannel {
     last_ev: usize,
     num_receivers: usize,
     next_receiver_id: usize,
-    buffer: Vec<(usize, NetworkEvent)>,
+    buffer: Vec<(usize, NetworkEvent, Option<Arc<AtomicBool>>)>,
     wakers: HashMap<usize, Waker>,
 }
 
@@ -44,11 +45,15 @@ impl MultiplexerChannel {
     }
 
     pub fn send_ev(&mut self, ev: NetworkEvent) {
+        self.send_guarded(ev, None);
+    }
+
+    fn send_guarded(&mut self, ev: NetworkEvent, active: Option<Arc<AtomicBool>>) {
         self.last_ev += 1;
         let lock_count = self.num_receivers.max(1);
-        self.buffer.push((lock_count, ev));
+        self.buffer.push((lock_count, ev, active));
         if self.buffer.len() > MAX_BUFFERED_EVENTS {
-            let (_, discarded) = self.buffer.remove(0);
+            let (_, discarded, _) = self.buffer.remove(0);
             tracing::warn!(
                 peer_id = %self.peer_id,
                 event = %discarded.get_ev_name(),
@@ -62,7 +67,16 @@ impl MultiplexerChannel {
         }
     }
 
-    pub fn recv_ev(&mut self, mut last_ev: &mut usize) -> Option<NetworkEvent> {
+    pub fn recv_ev(&mut self, last_ev: &mut usize) -> Option<NetworkEvent> {
+        loop {
+            let (event, active) = self.recv_queued(last_ev)?;
+            if active.is_none_or(|active| active.load(Ordering::Acquire)) {
+                return Some(event);
+            }
+        }
+    }
+
+    fn recv_queued(&mut self, last_ev: &mut usize) -> Option<(NetworkEvent, Option<Arc<AtomicBool>>)> {
         if *last_ev > self.last_ev {
             *last_ev = self.last_ev;
             return None;
@@ -89,9 +103,10 @@ impl MultiplexerChannel {
         }
 
         let ev_index = self.buffer.len() - (self.last_ev - *last_ev);
-        let (lock_count, ev) = &mut self.buffer[ev_index];
+        let (lock_count, ev, active) = &mut self.buffer[ev_index];
 
         let ev = ev.clone();
+        let active = active.clone();
 
         *lock_count -= 1;
 
@@ -100,7 +115,7 @@ impl MultiplexerChannel {
         }
 
         *last_ev += 1;
-        Some(ev)
+        Some((ev, active))
     }
 }
 
@@ -124,15 +139,15 @@ impl Drop for Channel {
         if let Some(ch) = channels.get_mut(&self.id) {
             ch.wakers.remove(&self.receiver_id);
             let first_ev = ch.last_ev - ch.buffer.len() + 1;
-            for (index, (remaining, _)) in ch.buffer.iter_mut().enumerate() {
+            for (index, (remaining, _, _)) in ch.buffer.iter_mut().enumerate() {
                 if first_ev + index > self.last_ev && ch.num_receivers > 0 {
                     *remaining -= 1;
                 }
             }
             ch.num_receivers -= 1;
-            ch.buffer.retain(|(remaining, _)| *remaining > 0);
+            ch.buffer.retain(|(remaining, _, _)| *remaining > 0);
             if ch.num_receivers == 0 {
-                for (remaining, _) in &mut ch.buffer {
+                for (remaining, _, _) in &mut ch.buffer {
                     *remaining = 1;
                 }
             }
@@ -320,6 +335,15 @@ impl Multiplexer {
         T: Struct,
     {
         self.send(receiver_id, NetworkEvent::new(sender_id, ev));
+    }
+
+    /// Queue a local event that is discarded at dequeue if its authority is retired.
+    /// Callers must still recheck authority across subsequent asynchronous effects.
+    pub fn send_guarded(&self, recipient_id: Id, ev: NetworkEvent, active: Arc<AtomicBool>) {
+        self.channels.write().unwrap()
+            .entry(recipient_id)
+            .or_insert_with(|| MultiplexerChannel::new(recipient_id))
+            .send_guarded(ev, Some(active));
     }
 
     pub async fn recv_ev<T>(&self, receiver_id: Id, sender_id: Id) -> Result<T>

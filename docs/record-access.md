@@ -174,6 +174,66 @@ UUID fields until an explicit native-value adapter is available.
 
 ## Replica state machine
 
+### Durable client storage
+
+`OfflineOperation` explicitly opts a typed schema request into offline submission.
+`PendingOperation` binds its versioned request to an account/environment scope,
+client incarnation, stable operation UUID, ordered sequence, and handler name.
+Decoding requires the selected handler's request type and matching scope; JSON
+envelopes are bounded and reject duplicate keys and trailing data. These checks
+validate the protocol, not authority to execute the operation.
+
+`SurrealReplicaBackend::enqueue_operation` stores these requests separately from
+record snapshots. Its transaction accepts identical retries, rejects identity
+reuse with different content, and advances the client stream by exactly one
+sequence. Concurrent writers must reload/retry after sequence conflicts.
+`pending_operations` returns bounded ordered batches for one account and client
+incarnation, stopping before the first rejected entry so dependent operations
+cannot silently bypass it. `reject_operation` records a terminal reason only
+for the exact queued request; repeated identical outcomes are idempotent and
+conflicting outcomes fail. Re-enqueueing does not clear rejection.
+`load_operation` retrieves the retained draft and reason within the same scope
+and client incarnation, including through a new connection. These are trusted
+local APIs: callers must authenticate server outcomes before recording them.
+This queue is not yet connected to upload, server deduplication,
+acknowledgment, rejection resolution, or optimistic projection. Entries are
+retained; callers must not treat a read as delivery or delete an entry on send.
+The live database fixture covers separate-connection recovery and concurrent
+writers, not disk crash recovery or browser persistence.
+
+Whole-record `PendingMutation` remains a trusted local storage API, not the
+client-to-server write protocol. Applications should register typed operations
+with explicit authorization and conflict policies rather than expose arbitrary
+record replacements. Replaying a local projection must not execute external
+effects, and importing history must not dispatch live actions.
+
+`schema::database::SurrealReplicaBackend` stores account/environment-scoped
+confirmed snapshots separately from optimistic pending mutations. `enqueue`
+atomically saves the optimistic value and its outbox entry. Mutation UUIDs are
+stable across retries; reusing a pending UUID with different content fails.
+Only one unresolved mutation per record is currently supported. New mutations
+must match the locally confirmed revision, so edits based on stale snapshots
+and retries after acknowledgment cannot recreate stale pending work.
+
+`pending` reads bounded replay batches without removing entries. `acknowledge`
+atomically removes the matching entry and clears its optimistic value. A newer
+downloaded snapshot is retained when an older acknowledgment arrives.
+`store_authoritative` rejects revision regression and conflicting values at the
+same revision, and preserves pending local edits. `load` returns the confirmed
+state, optimistic mutation JSON, and any terminal rejection separately.
+
+`reject` persists conflict, forbidden, or invalid outcomes and excludes those
+entries from automatic replay without deleting the local edit. Resolution and
+discard workflows are not yet implemented. Temporary transport failures should
+leave the pending entry unchanged, not mark it rejected.
+
+These are trusted local storage APIs, not authentication or authorization APIs.
+The caller must bind the scope to the authenticated account and verify the
+server before applying authoritative snapshots or acknowledgments. The APIs do
+not yet install reconnect workers, server mutation deduplication, change feeds,
+record projection, browser persistence recovery, or application write routing.
+Existing legacy record writers are not automatically redirected into this cache.
+
 `ReplicaEnvelope` represents snapshots, revision-checked patches, and tombstones
 separately. `ReplicaEnvelope::from_json` bounds encoded size and rejects duplicate
 keys. `ReplicaCache` is scoped to one root graph, a non-nil session epoch, and an

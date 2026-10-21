@@ -54,6 +54,19 @@ pub mod serialization;
 #[cfg(feature = "schema")]
 pub mod schema;
 
+#[cfg(feature = "bevy_reflect")]
+pub mod rpc_protocol;
+
+#[cfg(feature = "rpc")]
+#[path = "plugin/rpc/peer.rs"]
+pub mod rpc_peer;
+
+#[cfg(feature = "rpc")]
+pub mod rpc_auth;
+
+#[cfg(feature = "rpc_secure")]
+pub mod rpc_secure;
+
 pub mod prelude {
     #[cfg(feature = "bevy")]
     pub use crate::binding::*;

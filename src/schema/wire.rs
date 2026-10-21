@@ -30,7 +30,7 @@ pub struct WireValue {
     pub value: Value,
 }
 
-pub(crate) fn unique_value<'de, Deserializer: serde::Deserializer<'de>>(deserializer: Deserializer) -> std::result::Result<Value, Deserializer::Error> {
+pub fn unique_value<'de, Deserializer: serde::Deserializer<'de>>(deserializer: Deserializer) -> std::result::Result<Value, Deserializer::Error> {
     struct UniqueValue(Value);
     impl<'de> Deserialize<'de> for UniqueValue {
         fn deserialize<Deserializer: serde::Deserializer<'de>>(deserializer: Deserializer) -> std::result::Result<Self, Deserializer::Error> {

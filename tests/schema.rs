@@ -73,6 +73,10 @@ fn database_plan_lowers_checked_integers_and_enum_mappings() {
 #[schema(wire, name = "test.managed_event")]
 struct ManagedFixture { name: String }
 
+impl flux::schema::storage::OfflineOperation for ManagedFixture {
+    const OPERATION: &'static str = "test.managed.operation.v1";
+}
+
 fn managed_fixture_catalog() -> anyhow::Result<Catalog> {
     static CATALOG: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
     Ok(CATALOG.get_or_init(|| Catalog::init(&[("test.managed_event".into(), ManagedFixture::describe())].into()).unwrap()).clone())
@@ -713,7 +717,8 @@ fn schema_database_versioned_records_compare_exchange_atomically() {
     bevy_wasm_tasks::Runtime::default().block_on(async {
         use flux::schema::storage::VersionedRecordBackend;
         let db = flux::surrealdb_client::engine::any::connect(std::env::var("FLUX_MIGRATION_TEST_URL").unwrap()).await.unwrap();
-        db.use_ns(format!("flux_cas_{}", uuid::Uuid::new_v4().simple())).use_db("test").await.unwrap();
+        let namespace = format!("flux_cas_{}", uuid::Uuid::new_v4().simple());
+        db.use_ns(namespace.clone()).use_db("test").await.unwrap();
         let mut descriptor = Profile::describe();
         descriptor.database = true;
         let catalog = Catalog::init(&[(descriptor.name.clone(), descriptor.clone())].into()).unwrap();
@@ -721,8 +726,115 @@ fn schema_database_versioned_records_compare_exchange_atomically() {
         let payload = GraphValue { format_version: FORMAT_VERSION, graph: graph.clone(), value: serde_json::json!({"name":"initial", "avatar":null}) };
         let backend = database::SurrealRecordBackend(&db);
         let record_id = uuid::Uuid::new_v4();
+        let replica_backend = database::SurrealReplicaBackend(&db);
+        let scope = flux::schema::storage::ReplicaScope {
+            environment: "test".into(), account_id: uuid::Uuid::new_v4(),
+        };
+        let operation_catalog = managed_fixture_catalog().unwrap();
+        let incarnation = uuid::Uuid::new_v4();
+        let operation = flux::schema::storage::PendingOperation::encode(
+            &operation_catalog, scope.clone(), incarnation, uuid::Uuid::new_v4(), 1,
+            &ManagedFixture { name: "offline".into() },
+        ).unwrap();
+        assert!(replica_backend.pending_operations(&scope, incarnation, 16).await.unwrap().is_empty());
+        replica_backend.enqueue_operation::<ManagedFixture>(&operation_catalog, &operation, &scope).await.unwrap();
+        replica_backend.enqueue_operation::<ManagedFixture>(&operation_catalog, &operation, &scope).await.unwrap();
+        assert_eq!(replica_backend.pending_operations(&scope, incarnation, 16).await.unwrap().len(), 1);
+        let mut reused = operation.clone();
+        reused.request.value = serde_json::json!({"name":"different"});
+        assert!(replica_backend.enqueue_operation::<ManagedFixture>(&operation_catalog, &reused, &scope).await.is_err());
+        let mut next = operation.clone();
+        next.operation_id = uuid::Uuid::new_v4();
+        next.sequence = 3;
+        assert!(replica_backend.enqueue_operation::<ManagedFixture>(&operation_catalog, &next, &scope).await.is_err());
+        next.sequence = 2;
+        replica_backend.enqueue_operation::<ManagedFixture>(&operation_catalog, &next, &scope).await.unwrap();
+        let pending = replica_backend.pending_operations(&scope, incarnation, 16).await.unwrap();
+        assert_eq!(pending.iter().map(|entry| entry.sequence).collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(replica_backend.pending_operations(&scope, incarnation, 1).await.unwrap().len(), 1);
+        let isolated_scope = flux::schema::storage::ReplicaScope { account_id: uuid::Uuid::new_v4(), ..scope.clone() };
+        assert!(replica_backend.pending_operations(&isolated_scope, incarnation, 16).await.unwrap().is_empty());
+        assert!(replica_backend.enqueue_operation::<ManagedFixture>(&operation_catalog, &next, &isolated_scope).await.is_err());
+        let reopened = flux::surrealdb_client::engine::any::connect(std::env::var("FLUX_MIGRATION_TEST_URL").unwrap()).await.unwrap();
+        reopened.use_ns(namespace).use_db("test").await.unwrap();
+        let reopened_backend = database::SurrealReplicaBackend(&reopened);
+        assert_eq!(reopened_backend.pending_operations(&scope, incarnation, 16).await.unwrap().len(), 2);
+        let mut contender = next.clone();
+        contender.operation_id = uuid::Uuid::new_v4();
+        contender.sequence = 3;
+        let mut competing_operation = contender.clone();
+        competing_operation.operation_id = uuid::Uuid::new_v4();
+        let (first, second) = futures::join!(
+            replica_backend.enqueue_operation::<ManagedFixture>(&operation_catalog, &contender, &scope),
+            reopened_backend.enqueue_operation::<ManagedFixture>(&operation_catalog, &competing_operation, &scope),
+        );
+        assert_ne!(first.is_ok(), second.is_ok());
+        assert_eq!(reopened_backend.pending_operations(&scope, incarnation, 16).await.unwrap().len(), 3);
+        use flux::schema::storage::MutationRejection;
+        assert!(replica_backend.reject_operation(&isolated_scope, &operation, MutationRejection::Forbidden).await.is_err());
+        assert!(replica_backend.reject_operation(&scope, &reused, MutationRejection::Forbidden).await.is_err());
+        replica_backend.reject_operation(&scope, &next, MutationRejection::Conflict).await.unwrap();
+        replica_backend.reject_operation(&scope, &next, MutationRejection::Conflict).await.unwrap();
+        assert!(replica_backend.reject_operation(&scope, &next, MutationRejection::Forbidden).await.is_err());
+        let replayable = reopened_backend.pending_operations(&scope, incarnation, 16).await.unwrap();
+        assert_eq!(replayable.len(), 1);
+        assert_eq!(replayable[0].operation_id, operation.operation_id);
+        replica_backend.enqueue_operation::<ManagedFixture>(&operation_catalog, &next, &scope).await.unwrap();
+        assert_eq!(reopened_backend.pending_operations(&scope, incarnation, 16).await.unwrap().len(), 1);
+        replica_backend.reject_operation(&scope, &operation, MutationRejection::Forbidden).await.unwrap();
+        assert!(reopened_backend.pending_operations(&scope, incarnation, 16).await.unwrap().is_empty());
+        let retained = reopened_backend.load_operation(&scope, incarnation, next.operation_id).await.unwrap().unwrap();
+        assert_eq!(retained.1, Some(MutationRejection::Conflict));
+        assert_eq!(serde_json::to_value(retained.0).unwrap(), serde_json::to_value(&next).unwrap());
+        assert!(reopened_backend.load_operation(&isolated_scope, incarnation, next.operation_id).await.unwrap().is_none());
+        assert!(reopened_backend.load_operation(&scope, uuid::Uuid::new_v4(), next.operation_id).await.unwrap().is_none());
+        let mutation = flux::schema::storage::PendingMutation {
+            scope: scope.clone(), mutation_id: uuid::Uuid::new_v4(), record_id,
+            expected_revision: None, payload: payload.clone(), deleted: false,
+        };
+        replica_backend.enqueue(&catalog, mutation.clone()).await.unwrap();
+        replica_backend.enqueue(&catalog, mutation.clone()).await.unwrap();
+        assert_eq!(replica_backend.pending(&scope, 16).await.unwrap().len(), 1);
+        let other_scope = flux::schema::storage::ReplicaScope { account_id: uuid::Uuid::new_v4(), ..scope.clone() };
+        assert!(replica_backend.pending(&other_scope, 16).await.unwrap().is_empty());
+        assert!(mutation.validate(&catalog, &other_scope).is_err());
+        let mut competing = mutation.clone();
+        competing.mutation_id = uuid::Uuid::new_v4();
+        assert!(replica_backend.enqueue(&catalog, competing).await.is_err());
         assert!(backend.load(&graph.root, record_id).await.unwrap().is_none());
         let initial = backend.compare_exchange(&catalog, record_id, None, payload.clone()).await.unwrap();
+        replica_backend.acknowledge(&catalog, &mutation, initial.clone()).await.unwrap();
+        assert!(replica_backend.pending(&scope, 16).await.unwrap().is_empty());
+        assert!(replica_backend.enqueue(&catalog, mutation.clone()).await.is_err());
+        let next_mutation = flux::schema::storage::PendingMutation {
+            mutation_id: uuid::Uuid::new_v4(), expected_revision: Some(1), ..mutation.clone()
+        };
+        replica_backend.enqueue(&catalog, next_mutation.clone()).await.unwrap();
+        assert_eq!(replica_backend.pending(&scope, 16).await.unwrap().len(), 1);
+        replica_backend.store_authoritative(&catalog, &scope, record_id, initial.clone()).await.unwrap();
+        let cached = replica_backend.load(&scope, &graph.root, record_id).await.unwrap().unwrap();
+        assert_eq!(cached.confirmed.unwrap().revision, 1);
+        assert!(cached.optimistic.is_some());
+        assert!(replica_backend.load(&other_scope, &graph.root, record_id).await.unwrap().is_none());
+        let ahead = flux::schema::storage::StoredRecord { revision: 3, ..initial.clone() };
+        replica_backend.store_authoritative(&catalog, &scope, record_id, ahead).await.unwrap();
+        assert!(replica_backend.store_authoritative(&catalog, &scope, record_id, initial.clone()).await.is_err());
+        let acknowledgment = flux::schema::storage::StoredRecord { revision: 2, ..initial.clone() };
+        replica_backend.acknowledge(&catalog, &next_mutation, acknowledgment).await.unwrap();
+        let cached = replica_backend.load(&scope, &graph.root, record_id).await.unwrap().unwrap();
+        assert_eq!(cached.confirmed.unwrap().revision, 3);
+        assert!(cached.optimistic.is_none());
+        assert!(replica_backend.pending(&scope, 16).await.unwrap().is_empty());
+        let rejected = flux::schema::storage::PendingMutation {
+            mutation_id: uuid::Uuid::new_v4(), expected_revision: Some(3), ..mutation.clone()
+        };
+        replica_backend.enqueue(&catalog, rejected.clone()).await.unwrap();
+        assert!(replica_backend.reject(&other_scope, &rejected, flux::schema::storage::MutationRejection::Forbidden).await.is_err());
+        replica_backend.reject(&scope, &rejected, flux::schema::storage::MutationRejection::Forbidden).await.unwrap();
+        assert!(replica_backend.pending(&scope, 16).await.unwrap().is_empty());
+        let cached = replica_backend.load(&scope, &graph.root, record_id).await.unwrap().unwrap();
+        assert!(cached.optimistic.is_some());
+        assert_eq!(cached.rejection, Some(flux::schema::storage::MutationRejection::Forbidden));
         assert_eq!(initial.revision, 1);
         assert!(backend.compare_exchange(&catalog, record_id, None, payload.clone()).await.is_err());
         let patch = GraphValue { value: serde_json::json!({"name":"updated"}), ..payload.clone() };

@@ -8,6 +8,279 @@ pub struct SurrealMigrationBackend<'connection>(pub &'connection Surreal<Any>);
 
 pub struct SurrealRecordBackend<'connection>(pub &'connection Surreal<Any>);
 
+pub struct SurrealReplicaBackend<'connection>(pub &'connection Surreal<Any>);
+
+impl SurrealReplicaBackend<'_> {
+    pub async fn enqueue_operation<Request: super::storage::OfflineOperation>(
+        &self, catalog: &Catalog, operation: &super::storage::PendingOperation,
+        scope: &super::storage::ReplicaScope,
+    ) -> Result<()> {
+        operation.decode::<Request>(catalog, scope)?;
+        let encoded = serde_json::to_string(operation)?;
+        let stream_key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(scope, operation.client_incarnation))?));
+        let key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(scope, operation.client_incarnation, operation.operation_id))?));
+        self.0.query(
+            "BEGIN TRANSACTION;
+             DEFINE TABLE IF NOT EXISTS _flux_operation_outbox SCHEMALESS PERMISSIONS NONE;
+             DEFINE TABLE IF NOT EXISTS _flux_operation_streams SCHEMALESS PERMISSIONS NONE;
+             ALTER TABLE _flux_operation_outbox PERMISSIONS NONE;
+             ALTER TABLE _flux_operation_streams PERMISSIONS NONE;
+             LET $existing = SELECT * FROM ONLY type::record('_flux_operation_outbox', $key);
+             IF $existing != NONE AND $existing.encoded != $encoded { THROW 'Operation identity reused'; };
+             IF $existing = NONE {
+                 LET $stream = SELECT * FROM ONLY type::record('_flux_operation_streams', $stream_key);
+                 IF $sequence != ($stream.sequence ?? 0) + 1 { THROW 'Operation sequence conflict'; };
+                 CREATE type::record('_flux_operation_outbox', $key) CONTENT {
+                     scope: $scope, stream_key: $stream_key, sequence: $sequence, encoded: $encoded
+                 };
+                 UPSERT type::record('_flux_operation_streams', $stream_key) SET sequence = $sequence;
+             };
+             COMMIT TRANSACTION;"
+        ).bind(("key", key)).bind(("stream_key", stream_key)).bind(("encoded", encoded))
+            .bind(("scope", surrealdb::types::SerdeWrapper(scope.clone())))
+            .bind(("sequence", operation.sequence as i64)).await?.check()?;
+        Ok(())
+    }
+
+    pub async fn load_operation(
+        &self, scope: &super::storage::ReplicaScope, client_incarnation: uuid::Uuid,
+        operation_id: uuid::Uuid,
+    ) -> Result<Option<(super::storage::PendingOperation, Option<super::storage::MutationRejection>)>> {
+        scope.validate()?;
+        ensure!(!client_incarnation.is_nil() && !operation_id.is_nil(), "Invalid operation identity");
+        let key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(scope, client_incarnation, operation_id))?));
+        let response = self.0.query("SELECT encoded, rejection FROM type::record('_flux_operation_outbox', $key)")
+            .bind(("key", key)).await?.check();
+        let mut response = match response {
+            Ok(response) => response,
+            Err(error) if matches!(error.not_found_details(), Some(surrealdb::types::NotFoundError::Table { .. })) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        #[derive(Serialize, Deserialize)]
+        struct Entry {
+            encoded: String,
+            #[serde(default)]
+            rejection: Option<super::storage::MutationRejection>,
+        }
+        let records: Vec<surrealdb::types::SerdeWrapper<Entry>> = response.take(0)?;
+        records.into_iter().next().map(|entry| {
+            let operation = super::storage::PendingOperation::from_json(entry.0.encoded.as_bytes(), scope)?;
+            ensure!(operation.client_incarnation == client_incarnation && operation.operation_id == operation_id,
+                "Stored operation identity mismatch");
+            Ok((operation, entry.0.rejection))
+        }).transpose()
+    }
+
+    pub async fn reject_operation(
+        &self, scope: &super::storage::ReplicaScope, operation: &super::storage::PendingOperation,
+        reason: super::storage::MutationRejection,
+    ) -> Result<()> {
+        operation.validate(scope)?;
+        let key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(scope, operation.client_incarnation, operation.operation_id))?));
+        self.0.query(
+            "BEGIN TRANSACTION;
+             LET $entry = SELECT * FROM ONLY type::record('_flux_operation_outbox', $key);
+             IF $entry = NONE OR $entry.encoded != $encoded { THROW 'Pending operation changed'; };
+             IF $entry.rejection != NONE AND $entry.rejection != $reason { THROW 'Operation outcome changed'; };
+             UPDATE type::record('_flux_operation_outbox', $key) SET rejection = $reason;
+             COMMIT TRANSACTION;"
+        ).bind(("key", key)).bind(("encoded", serde_json::to_string(operation)?))
+            .bind(("reason", surrealdb::types::SerdeWrapper(reason))).await?.check()?;
+        Ok(())
+    }
+
+    pub async fn pending_operations(
+        &self, scope: &super::storage::ReplicaScope, client_incarnation: uuid::Uuid, limit: usize,
+    ) -> Result<Vec<super::storage::PendingOperation>> {
+        scope.validate()?;
+        ensure!(!client_incarnation.is_nil(), "Invalid client incarnation");
+        ensure!((1..=128).contains(&limit), "Invalid operation batch limit");
+        let stream_key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(scope, client_incarnation))?));
+        let response = self.0.query(
+            "SELECT encoded, sequence, rejection FROM _flux_operation_outbox WHERE stream_key = $stream_key ORDER BY sequence LIMIT $limit"
+        ).bind(("stream_key", stream_key)).bind(("limit", limit as i64)).await?.check();
+        let mut response = match response {
+            Ok(response) => response,
+            Err(error) if matches!(error.not_found_details(), Some(surrealdb::types::NotFoundError::Table { .. })) => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        #[derive(Serialize, Deserialize)]
+        struct Entry {
+            encoded: String, sequence: u64,
+            #[serde(default)]
+            rejection: Option<super::storage::MutationRejection>,
+        }
+        let records: Vec<surrealdb::types::SerdeWrapper<Entry>> = response.take(0)?;
+        records.into_iter().take_while(|entry| entry.0.rejection.is_none()).map(|entry| {
+            let operation = super::storage::PendingOperation::from_json(entry.0.encoded.as_bytes(), scope)?;
+            ensure!(operation.client_incarnation == client_incarnation && operation.sequence == entry.0.sequence,
+                "Operation stream mismatch");
+            Ok(operation)
+        }).collect()
+    }
+
+    pub async fn load(
+        &self, scope: &super::storage::ReplicaScope, subject: &str, record_id: uuid::Uuid,
+    ) -> Result<Option<super::storage::LocalReplicaRecord>> {
+        scope.validate()?;
+        let subject = uuid::Uuid::parse_str(subject)?.to_string();
+        ensure!(!record_id.is_nil(), "Invalid replica record identity");
+        let key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(scope, subject, record_id))?));
+        let response = self.0.query("SELECT scope, confirmed, optimistic, rejection FROM type::record('_flux_replica_local', $key)")
+            .bind(("key", key)).await?.check();
+        let mut response = match response {
+            Ok(response) => response,
+            Err(error) if matches!(error.not_found_details(), Some(surrealdb::types::NotFoundError::Table { .. })) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let records: Vec<surrealdb::types::SerdeWrapper<super::storage::LocalReplicaRecord>> = response.take(0)?;
+        let record = records.into_iter().next().map(|record| record.0);
+        ensure!(record.as_ref().is_none_or(|record| &record.scope == scope), "Replica scope mismatch");
+        Ok(record)
+    }
+
+    pub async fn store_authoritative(
+        &self, catalog: &Catalog, scope: &super::storage::ReplicaScope,
+        record_id: uuid::Uuid, confirmed: super::storage::StoredRecord,
+    ) -> Result<()> {
+        scope.validate()?;
+        ensure!(!record_id.is_nil() && confirmed.revision > 0 && confirmed.revision <= i64::MAX as u64,
+            "Invalid replica revision or identity");
+        ensure!(confirmed.payload.format_version == FORMAT_VERSION, "Unsupported replica format");
+        confirmed.payload.graph.validate_value(catalog, &confirmed.payload.value, ValueMode::Complete)?;
+        ensure!(serde_json::to_vec(&confirmed)?.len() <= MAX_GRAPH_BYTES, "Replica exceeds byte limit");
+        let key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(
+            scope, &confirmed.payload.graph.root, record_id,
+        ))?));
+        let mut response = self.0.query(
+            "BEGIN TRANSACTION;
+             DEFINE TABLE IF NOT EXISTS _flux_replica_local SCHEMALESS PERMISSIONS NONE;
+             ALTER TABLE _flux_replica_local PERMISSIONS NONE;
+             LET $local = SELECT * FROM ONLY type::record('_flux_replica_local', $key);
+             IF $local.confirmed != NONE AND $local.confirmed.revision > $revision { THROW 'Stale replica'; };
+             IF $local.confirmed != NONE AND $local.confirmed.revision = $revision AND $local.confirmed != $confirmed { THROW 'Replica revision reused'; };
+             UPSERT type::record('_flux_replica_local', $key) SET scope = $scope, confirmed = $confirmed;
+             COMMIT TRANSACTION;"
+        ).bind(("key", key)).bind(("scope", surrealdb::types::SerdeWrapper(scope.clone())))
+            .bind(("revision", confirmed.revision as i64))
+            .bind(("confirmed", surrealdb::types::SerdeWrapper(confirmed))).await?;
+        ensure!(response.take_errors().is_empty(), "Cannot store authoritative replica");
+        Ok(())
+    }
+
+    pub async fn acknowledge(
+        &self, catalog: &Catalog, mutation: &super::storage::PendingMutation,
+        confirmed: super::storage::StoredRecord,
+    ) -> Result<()> {
+        mutation.validate(catalog, &mutation.scope)?;
+        ensure!(confirmed.revision > mutation.expected_revision.unwrap_or(0)
+            && confirmed.revision <= i64::MAX as u64, "Invalid acknowledged revision");
+        ensure!(confirmed.payload.format_version == FORMAT_VERSION
+            && confirmed.payload.graph == mutation.payload.graph, "Acknowledgment graph mismatch");
+        ensure!(confirmed.deleted == mutation.deleted, "Acknowledgment operation mismatch");
+        confirmed.payload.graph.validate_value(catalog, &confirmed.payload.value, ValueMode::Complete)?;
+        ensure!(serde_json::to_vec(&confirmed)?.len() <= MAX_GRAPH_BYTES, "Acknowledgment exceeds byte limit");
+        let mutation_key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(
+            &mutation.scope, mutation.mutation_id,
+        ))?));
+        let mut response = self.0.query(
+            "BEGIN TRANSACTION;
+             LET $entry = SELECT * FROM ONLY type::record('_flux_replica_outbox', $mutation_key);
+             IF $entry = NONE OR $entry.encoded != $encoded { THROW 'Pending mutation changed'; };
+             LET $local = SELECT * FROM ONLY type::record('_flux_replica_local', $entry.record_key);
+             IF $local = NONE OR $local.pending != $mutation_key { THROW 'Local mutation changed'; };
+             IF $local.confirmed != NONE AND $local.confirmed.revision = $confirmed.revision AND $local.confirmed != $confirmed { THROW 'Replica revision reused'; };
+             LET $latest = IF $local.confirmed != NONE AND $local.confirmed.revision > $confirmed.revision { $local.confirmed } ELSE { $confirmed };
+             UPDATE type::record('_flux_replica_local', $entry.record_key)
+                 SET confirmed = $latest, pending = NONE, optimistic = NONE, rejection = NONE;
+             DELETE type::record('_flux_replica_outbox', $mutation_key);
+             COMMIT TRANSACTION;"
+        ).bind(("mutation_key", mutation_key)).bind(("encoded", serde_json::to_string(mutation)?))
+            .bind(("confirmed", surrealdb::types::SerdeWrapper(confirmed))).await?;
+        ensure!(response.take_errors().is_empty(), "Cannot acknowledge mutation atomically");
+        Ok(())
+    }
+
+    pub async fn reject(
+        &self, scope: &super::storage::ReplicaScope, mutation: &super::storage::PendingMutation,
+        reason: super::storage::MutationRejection,
+    ) -> Result<()> {
+        scope.validate()?;
+        ensure!(&mutation.scope == scope, "Mutation belongs to another replica scope");
+        let key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(scope, mutation.mutation_id))?));
+        let mut response = self.0.query(
+            "BEGIN TRANSACTION;
+             LET $entry = SELECT * FROM ONLY type::record('_flux_replica_outbox', $key);
+             IF $entry = NONE OR $entry.encoded != $encoded { THROW 'Pending mutation changed'; };
+             LET $local = SELECT * FROM ONLY type::record('_flux_replica_local', $entry.record_key);
+             IF $local = NONE OR $local.pending != $key { THROW 'Local mutation changed'; };
+             UPDATE type::record('_flux_replica_outbox', $key) SET rejection = $reason;
+             UPDATE type::record('_flux_replica_local', $entry.record_key) SET rejection = $reason;
+             COMMIT TRANSACTION;"
+        ).bind(("key", key)).bind(("encoded", serde_json::to_string(mutation)?))
+            .bind(("reason", surrealdb::types::SerdeWrapper(reason))).await?;
+        ensure!(response.take_errors().is_empty(), "Cannot record mutation rejection");
+        Ok(())
+    }
+
+    pub async fn enqueue(&self, catalog: &Catalog, mutation: super::storage::PendingMutation) -> Result<()> {
+        mutation.validate(catalog, &mutation.scope)?;
+        let encoded = serde_json::to_string(&mutation)?;
+        let key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(
+            &mutation.scope, &mutation.payload.graph.root, mutation.record_id,
+        ))?));
+        let mutation_key = format!("{:x}", Sha256::digest(serde_json::to_vec(&(
+            &mutation.scope, mutation.mutation_id,
+        ))?));
+        let mut response = self.0.query(
+            "BEGIN TRANSACTION;
+             DEFINE TABLE IF NOT EXISTS _flux_replica_outbox SCHEMALESS PERMISSIONS NONE;
+             DEFINE TABLE IF NOT EXISTS _flux_replica_local SCHEMALESS PERMISSIONS NONE;
+             ALTER TABLE _flux_replica_outbox PERMISSIONS NONE;
+             ALTER TABLE _flux_replica_local PERMISSIONS NONE;
+             LET $existing = SELECT * FROM ONLY type::record('_flux_replica_outbox', $mutation_key);
+             IF $existing != NONE AND $existing.encoded != $encoded { THROW 'Mutation identity reused'; };
+             IF $existing = NONE {
+                 LET $local = SELECT * FROM ONLY type::record('_flux_replica_local', $key);
+                 IF ($local.confirmed.revision ?? 0) != $expected { THROW 'Local revision conflict'; };
+                 LET $pending = SELECT id FROM _flux_replica_outbox WHERE record_key = $key LIMIT 1;
+                 IF array::len($pending) != 0 { THROW 'Record already has a pending mutation'; };
+                 CREATE type::record('_flux_replica_outbox', $mutation_key) CONTENT {
+                     scope: $scope, record_key: $key, encoded: $encoded
+                 };
+                 UPSERT type::record('_flux_replica_local', $key) SET
+                     scope = $scope, pending = $mutation_key, optimistic = $encoded, rejection = NONE;
+             };
+             COMMIT TRANSACTION;"
+        ).bind(("scope", surrealdb::types::SerdeWrapper(mutation.scope)))
+            .bind(("expected", mutation.expected_revision.unwrap_or(0) as i64))
+            .bind(("key", key)).bind(("mutation_key", mutation_key)).bind(("encoded", encoded)).await?;
+        ensure!(response.take_errors().is_empty(), "Cannot enqueue mutation atomically");
+        Ok(())
+    }
+
+    pub async fn pending(&self, scope: &super::storage::ReplicaScope, limit: usize) -> Result<Vec<super::storage::PendingMutation>> {
+        scope.validate()?;
+        ensure!((1..=128).contains(&limit), "Invalid outbox batch limit");
+        let response = self.0.query(
+            "SELECT VALUE encoded FROM _flux_replica_outbox WHERE scope = $scope AND rejection = NONE ORDER BY id LIMIT $limit"
+        ).bind(("scope", surrealdb::types::SerdeWrapper(scope.clone())))
+            .bind(("limit", limit as i64)).await?.check();
+        let mut response = match response {
+            Ok(response) => response,
+            Err(error) if matches!(error.not_found_details(), Some(surrealdb::types::NotFoundError::Table { .. })) => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let records: Vec<String> = response.take(0)?;
+        records.into_iter().map(|encoded| {
+            ensure!(encoded.len() <= MAX_GRAPH_BYTES, "Stored mutation exceeds byte limit");
+            let mutation: super::storage::PendingMutation = serde_json::from_str(&encoded)?;
+            ensure!(&mutation.scope == scope, "Outbox scope mismatch");
+            Ok(mutation)
+        }).collect()
+    }
+}
+
 impl super::storage::VersionedRecordBackend for SurrealRecordBackend<'_> {
     async fn load(&self, subject: &str, record_id: uuid::Uuid) -> Result<Option<super::storage::StoredRecord>> {
         let subject = uuid::Uuid::parse_str(subject)?;

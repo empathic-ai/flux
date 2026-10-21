@@ -15,6 +15,69 @@ trait EchoApi {
 
 fn never(_: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> { Box::pin(std::future::pending()) }
 
+#[test]
+fn child_authority_retires_independently_and_inherits_parent_revocation() {
+    use flux::rpc_protocol::RpcAuthorityScope;
+    let parent = RpcAuthorityScope::default();
+    let first = parent.permit().child_scope();
+    let second = parent.permit().child_scope();
+    let first_permit = first.permit();
+    first.retire();
+    assert!(first_permit.check().is_err());
+    assert!(parent.permit().check().is_ok());
+    assert!(second.permit().check().is_ok());
+    let second_permit = second.permit();
+    parent.retire();
+    assert!(second_permit.check().is_err());
+    assert!(parent.permit().child_scope().permit().check().is_err());
+}
+
+#[cfg(feature = "rpc_secure")]
+#[test]
+fn secure_datagrams_tolerate_loss_without_replay_or_lane_confusion() {
+    use flux::rpc_secure::{HandshakeRole, RpcHandshake};
+    let mut initiator = RpcHandshake::new_datagrams(HandshakeRole::Initiator, &[7; 32], 1024).unwrap();
+    let mut responder = RpcHandshake::new_datagrams(HandshakeRole::Responder, &[8; 32], 1024).unwrap();
+    responder.read(&initiator.write().unwrap()).unwrap();
+    initiator.read(&responder.write().unwrap()).unwrap();
+    responder.read(&initiator.write().unwrap()).unwrap();
+    let mut sender = initiator.approve_datagrams(&RpcHandshake::public_key(&[8; 32]).unwrap()).unwrap();
+    let mut receiver = responder.approve_datagrams(&RpcHandshake::public_key(&[7; 32]).unwrap()).unwrap();
+    let dropped = sender.encrypt(1, b"dropped").unwrap();
+    let audio = sender.encrypt(1, b"audio").unwrap();
+    let control = sender.encrypt(0, b"control").unwrap();
+    assert!(sender.encrypt(2, b"invalid lane").is_err());
+    assert!(sender.encrypt(0, b"").is_err());
+    assert!(sender.encrypt(0, &[0; 1024]).is_err());
+    assert!(receiver.decrypt(0, &[0; 24]).is_err());
+    assert!(receiver.decrypt(0, &audio).is_err());
+    let mut forged = audio.clone();
+    forged[0] ^= 1;
+    assert!(receiver.decrypt(1, &forged).is_err());
+    assert_eq!(receiver.decrypt(1, &audio).unwrap(), b"audio");
+    assert!(receiver.decrypt(1, &audio).is_err());
+    assert!(receiver.decrypt(1, &dropped).is_err());
+    assert_eq!(receiver.decrypt(0, &control).unwrap(), b"control");
+    let reply = receiver.encrypt(0, b"reply").unwrap();
+    assert_eq!(sender.decrypt(0, &reply).unwrap(), b"reply");
+    receiver.close();
+    assert!(receiver.decrypt(0, &sender.encrypt(0, b"closed").unwrap()).is_err());
+}
+
+#[cfg(feature = "rpc_secure")]
+#[test]
+fn secure_datagrams_reject_ordered_handshake_mode() {
+    use flux::rpc_secure::{HandshakeRole, RpcHandshake};
+    let mut initiator = RpcHandshake::new_datagrams(HandshakeRole::Initiator, &[7; 32], 1024).unwrap();
+    let mut responder = RpcHandshake::new(HandshakeRole::Responder, &[8; 32], 1024).unwrap();
+    responder.read(&initiator.write().unwrap()).unwrap();
+    assert!(initiator.read(&responder.write().unwrap()).is_err());
+    assert!(RpcHandshake::new(HandshakeRole::Initiator, &[7; 32], 1024).unwrap()
+        .approve_datagrams(&[8; 32]).is_err());
+    assert!(RpcHandshake::new_datagrams(HandshakeRole::Initiator, &[7; 32], 1024).unwrap()
+        .approve(&[8; 32]).is_err());
+}
+
 #[derive(Reflect, Reactive, Clone, Serialize, Deserialize, flux::schema::Schema)]
 #[schema(wire, name = "test.nested_rpc")]
 struct NestedRpc { detail: RpcDetail }
@@ -50,6 +113,34 @@ fn nested_event_catalog() -> anyhow::Result<flux::schema::Catalog> {
 
 fn nested_contracts() -> flux::schema::wire::GraphServiceContracts {
     flux::schema::wire::GraphServiceContracts::new::<NestedRpc, NestedRpc, NestedRpc>(nested_event_catalog().unwrap()).unwrap()
+}
+
+#[test]
+fn generated_client_uses_standalone_service_dispatcher() {
+    use flux::rpc_peer::PeerServiceRegistry;
+    use flux::rpc_protocol::{RpcDispatch, RpcDispatcher};
+    struct StandaloneTransport(PeerServiceRegistry, Id);
+    impl RpcTransport for StandaloneTransport {
+        fn exchange(&self, request: RpcRequest) -> TaskResult<RpcReply, RpcError> {
+            let task: RpcDispatch = self.0.dispatch(self.1, request);
+            TaskResult::new(task)
+        }
+        fn cancel(&self, _: Id) {}
+    }
+    let peer = Id::new();
+    let mut registry = PeerServiceRegistry::new(never);
+    registry.register::<NestedRpc, NestedRpc, NestedRpc, _, _, _>(NestedRpc::OPERATION,
+        nested_contracts(), move |authenticated_peer, request_id, request| async move {
+            assert_eq!(authenticated_peer, peer);
+            assert_ne!(request_id, Id::nil());
+            if request.detail.total == 0 { Err(request) } else { Ok(request) }
+        }).unwrap();
+    let client = NestedApiRemoteClient::new(RemoteServiceClient::new(
+        Arc::new(StandaloneTransport(registry, peer)), never, 1000));
+    let mut success = Box::pin(client.nested(NestedRpc { detail: RpcDetail { total: 7 } }));
+    assert!(matches!(poll(success.as_mut()), Poll::Ready(Ok(NestedRpc { detail: RpcDetail { total: 7 } }))));
+    let mut failure = Box::pin(client.nested(NestedRpc { detail: RpcDetail { total: 0 } }));
+    assert!(matches!(poll(failure.as_mut()), Poll::Ready(Err(CallError::Application(NestedRpc { detail: RpcDetail { total: 0 } })))));
 }
 
 flux::register_managed_event!(NestedRpc, nested_event_catalog);
@@ -139,6 +230,201 @@ fn server(pending: bool) -> (App, RpcServer) {
 }
 
 struct Loopback { server: RpcServer, peer: Id }
+#[test]
+fn versioned_peer_service_uses_shared_authorization_sessions() {
+    use flux::{rpc_auth::{RpcPrincipal, RpcSessions, SessionRpcDispatcher}, rpc_peer::PeerServiceRegistry,
+        rpc_protocol::QueuedRpcAdapter, schema::wire::ServiceContractSet};
+    let peer = Id::new();
+    let sessions = RpcSessions::default();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let mut registry = PeerServiceRegistry::new(never);
+    registry.register::<NestedRpc, NestedRpc, NestedRpc, _, _, _>(NestedRpc::OPERATION, nested_contracts(),
+        move |_, _, request| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async move { Ok(request) }
+        }).unwrap();
+    let dispatcher = SessionRpcDispatcher::new(Arc::new(registry), sessions.clone(), never);
+    let adapter = Arc::new(QueuedRpcAdapter::new(peer, 16 * 1024, 4).unwrap());
+    let endpoint = PeerRpc::with_adapter(dispatcher, adapter.clone());
+    let call = nested_contracts().call(serde_json::json!({"detail":{"total":7}})).unwrap();
+    let operation = format!("{}.graph", NestedRpc::OPERATION);
+    let receive = || {
+        let bytes = PeerRpcFrame::Request(RpcRequest {
+            version: RPC_VERSION, request_id: Id::new(), operation: operation.clone(), timeout_ms: 1000,
+            payload: serde_json::to_vec(&flux::rpc_protocol::RpcContractCall { call: call.clone() }).unwrap(),
+        }).encode().unwrap();
+        let mut task = endpoint.receive(peer, &bytes).unwrap();
+        assert!(matches!(poll(Pin::new(&mut task)), Poll::Ready(Ok(()))));
+        match PeerRpcFrame::decode(&adapter.try_recv().unwrap().unwrap()).unwrap() {
+            PeerRpcFrame::Reply(reply) => reply.result,
+            _ => panic!("expected service reply"),
+        }
+    };
+    assert_eq!(receive(), Err(RpcError::Unauthenticated));
+    sessions.bind_verified(peer, RpcPrincipal::Device(Id::new()), vec!["other.graph".into()], Duration::from_secs(60)).unwrap();
+    assert_eq!(receive(), Err(RpcError::Forbidden));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    sessions.bind_verified(peer, RpcPrincipal::Device(Id::new()), vec![operation.clone()], Duration::from_secs(60)).unwrap();
+    assert!(receive().is_ok());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    endpoint.disconnect();
+    assert_eq!(sessions.principal(peer), Err(RpcError::Unauthenticated));
+    assert_eq!(adapter.try_recv(), Err(RpcError::Disconnected));
+}
+
+#[test]
+fn peer_rpc_uses_connection_adapter_limits_and_identity() {
+    struct TestAdapter {
+        peer: Id,
+        sent: std::sync::Mutex<Vec<Vec<u8>>>,
+    }
+    impl RpcConnectionAdapter for TestAdapter {
+        fn authenticated_peer(&self) -> Id { self.peer }
+        fn max_message_bytes(&self) -> usize { 256 }
+        fn send(&self, bytes: Vec<u8>) -> Result<(), RpcError> {
+            assert!(bytes.len() <= self.max_message_bytes());
+            self.sent.lock().unwrap().push(bytes);
+            Ok(())
+        }
+    }
+    let (_app, server) = server(false);
+    let adapter = Arc::new(TestAdapter { peer: Id::new(), sent: Default::default() });
+    let endpoint = PeerRpc::with_adapter(server, adapter.clone());
+    let request = RpcRequest {
+        version: RPC_VERSION, request_id: Id::new(), operation: Echo::OPERATION.into(),
+        timeout_ms: 1000, payload: serde_json::to_vec(&Echo(17)).unwrap(),
+    };
+    let mut oversized = request.clone();
+    oversized.payload = vec![255; 256];
+    let bytes = PeerRpcFrame::Request(oversized.clone()).encode().unwrap();
+    assert!(matches!(endpoint.receive(adapter.peer, &bytes), Err(RpcError::InvalidPayload)));
+    let mut call = Box::pin(endpoint.exchange(oversized));
+    assert!(matches!(poll(call.as_mut()), Poll::Ready(Err(RpcError::InvalidPayload))));
+    assert!(adapter.sent.lock().unwrap().is_empty());
+    let bytes = PeerRpcFrame::Request(request).encode().unwrap();
+    assert!(matches!(endpoint.receive(Id::new(), &bytes), Err(RpcError::InvalidPayload)));
+    let mut dispatch = Box::pin(endpoint.receive(adapter.peer, &bytes).unwrap());
+    assert!(matches!(poll(dispatch.as_mut()), Poll::Ready(Ok(()))));
+    assert_eq!(adapter.sent.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn peer_rpc_reserves_request_id_until_exchange_finishes() {
+    let (_app, server) = server(false);
+    let peer = Id::new();
+    let endpoint = PeerRpc::new(peer, server, |_| Ok(()));
+    let request = RpcRequest {
+        version: RPC_VERSION, request_id: Id::new(), operation: Echo::OPERATION.into(),
+        timeout_ms: 1000, payload: serde_json::to_vec(&Echo(17)).unwrap(),
+    };
+    let mut first = Box::pin(endpoint.exchange(request.clone()));
+    assert!(poll(first.as_mut()).is_pending());
+    let reply = PeerRpcFrame::Reply(RpcReply {
+        version: RPC_VERSION, request_id: request.request_id, result: Ok(vec![]),
+    }).encode().unwrap();
+    drop(endpoint.receive(peer, &reply).unwrap());
+    let mut duplicate = Box::pin(endpoint.exchange(request.clone()));
+    assert!(matches!(poll(duplicate.as_mut()), Poll::Ready(Err(RpcError::InvalidPayload))));
+    assert!(matches!(poll(first.as_mut()), Poll::Ready(Ok(_))));
+    let mut next = Box::pin(endpoint.exchange(request.clone()));
+    assert!(poll(next.as_mut()).is_pending());
+    drop(first);
+    drop(endpoint.receive(peer, &reply).unwrap());
+    assert!(matches!(poll(next.as_mut()), Poll::Ready(Ok(_))));
+}
+
+#[test]
+fn peer_rpc_cancellation_before_poll_and_frame_validation() {
+    let (_app, server) = server(false);
+    let peer = Id::new();
+    let replies = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let output = replies.clone();
+    let endpoint = PeerRpc::new(peer, server, move |bytes| {
+        output.lock().unwrap().push(bytes);
+        Ok(())
+    });
+    let request_id = Id::new();
+    let request = PeerRpcFrame::Request(RpcRequest {
+        version: RPC_VERSION, request_id, operation: Echo::OPERATION.into(),
+        timeout_ms: 1000, payload: serde_json::to_vec(&Echo(17)).unwrap(),
+    }).encode().unwrap();
+    let mut dispatch = Box::pin(endpoint.receive(peer, &request).unwrap());
+    assert!(matches!(endpoint.receive(peer, &request), Err(RpcError::InvalidPayload)));
+    let cancel = PeerRpcFrame::Cancel { version: RPC_VERSION, request_id }.encode().unwrap();
+    drop(endpoint.receive(peer, &cancel).unwrap());
+    assert!(matches!(poll(dispatch.as_mut()), Poll::Ready(Ok(()))));
+    let bytes = replies.lock().unwrap().pop().unwrap();
+    match PeerRpcFrame::decode(&bytes).unwrap() {
+        PeerRpcFrame::Reply(reply) => assert_eq!(reply.result, Err(RpcError::Cancelled)),
+        _ => panic!("expected cancellation reply"),
+    }
+    let mut dispatch = Box::pin(endpoint.receive(peer, &request).unwrap());
+    endpoint.disconnect();
+    assert!(matches!(poll(dispatch.as_mut()), Poll::Ready(Err(RpcError::Disconnected))));
+    assert!(replies.lock().unwrap().is_empty());
+    assert!(matches!(endpoint.receive(peer, &request), Err(RpcError::Disconnected)));
+    assert!(PeerRpcFrame::decode(br#"{"kind":"Cancel","kind":"Cancel","message":{}}"#).is_err());
+    let mut trailing = cancel.clone();
+    trailing.extend_from_slice(b" {}");
+    assert!(PeerRpcFrame::decode(&trailing).is_err());
+    assert!(PeerRpcFrame::Cancel { version: RPC_VERSION + 1, request_id }.encode().is_err());
+    assert!(PeerRpcFrame::Cancel { version: RPC_VERSION, request_id: Id::nil() }.encode().is_err());
+    assert!(PeerRpcFrame::Reply(RpcReply {
+        version: RPC_VERSION, request_id, result: Ok(vec![0; RPC_MAX_PAYLOAD + 1]),
+    }).encode().is_err());
+}
+
+#[test]
+fn peer_rpc_routes_both_directions_and_disconnects_pending_calls() {
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+    let (_left_app, left_server) = server(false);
+    let (_right_app, right_server) = server(false);
+    let left_id = Id::new();
+    let right_id = Id::new();
+    let to_left = Arc::new(Mutex::new(VecDeque::new()));
+    let to_right = Arc::new(Mutex::new(VecDeque::new()));
+    let outgoing = to_right.clone();
+    let left = PeerRpc::new(right_id, left_server, move |bytes| {
+        outgoing.lock().unwrap().push_back(bytes);
+        Ok(())
+    });
+    let outgoing = to_left.clone();
+    let right = PeerRpc::new(left_id, right_server, move |bytes| {
+        outgoing.lock().unwrap().push_back(bytes);
+        Ok(())
+    });
+    let left_client = EchoApiRemoteClient::new(RemoteServiceClient::new(Arc::new(left.clone()), never, 1000));
+    let right_client = EchoApiRemoteClient::new(RemoteServiceClient::new(Arc::new(right.clone()), never, 1000));
+    let mut left_call = Box::pin(left_client.echo(Echo(11)));
+    let mut right_call = Box::pin(right_client.echo(Echo(22)));
+    assert!(poll(left_call.as_mut()).is_pending());
+    assert!(poll(right_call.as_mut()).is_pending());
+    let request = to_right.lock().unwrap().pop_front().unwrap();
+    let mut dispatch = Box::pin(right.receive(left_id, &request).unwrap());
+    assert!(matches!(poll(dispatch.as_mut()), Poll::Ready(Ok(()))));
+    let request = to_left.lock().unwrap().pop_front().unwrap();
+    let mut dispatch = Box::pin(left.receive(right_id, &request).unwrap());
+    assert!(matches!(poll(dispatch.as_mut()), Poll::Ready(Ok(()))));
+    let reply = to_left.lock().unwrap().pop_front().unwrap();
+    assert!(matches!(left.receive(Id::new(), &reply), Err(RpcError::InvalidPayload)));
+    let mut delivery = Box::pin(left.receive(right_id, &reply).unwrap());
+    assert!(matches!(poll(delivery.as_mut()), Poll::Ready(Ok(()))));
+    assert!(matches!(left.receive(right_id, &reply), Err(RpcError::InvalidReply)));
+    let reply = to_right.lock().unwrap().pop_front().unwrap();
+    let mut delivery = Box::pin(right.receive(left_id, &reply).unwrap());
+    assert!(matches!(poll(delivery.as_mut()), Poll::Ready(Ok(()))));
+    assert!(matches!(poll(left_call.as_mut()), Poll::Ready(Ok(11))));
+    assert!(matches!(poll(right_call.as_mut()), Poll::Ready(Ok(22))));
+    let mut pending = Box::pin(left_client.echo(Echo(33)));
+    assert!(poll(pending.as_mut()).is_pending());
+    left.disconnect();
+    assert!(matches!(poll(pending.as_mut()), Poll::Ready(Err(CallError::Remote(RpcError::Disconnected)))));
+    let mut later = Box::pin(left_client.echo(Echo(44)));
+    assert!(matches!(poll(later.as_mut()), Poll::Ready(Err(CallError::Remote(RpcError::Disconnected)))));
+}
+
 impl RpcTransport for Loopback {
     fn exchange(&self, request: RpcRequest) -> TaskResult<RpcReply, RpcError> {
         self.server.dispatch(self.peer, request)
@@ -149,6 +435,135 @@ impl RpcTransport for Loopback {
 fn request(request_id: Id) -> RpcRequest {
     RpcRequest { version: RPC_VERSION, request_id, operation: Echo::OPERATION.into(),
         timeout_ms: 1_000, payload: serde_json::to_vec(&Echo(7)).unwrap() }
+}
+
+#[test]
+fn scoped_authority_wakes_all_suspended_requests() {
+    use flux::rpc_protocol::{AuthorizedRpcDispatcher, RpcAuthorityScope, RpcAuthorizer,
+        RpcDispatcher, RpcDispatch, ScopedRpcAuthorizer};
+    struct Policy;
+    impl RpcAuthorizer for Policy {
+        fn authorize(&self, _: Id, _: &str) -> Result<(), RpcError> { Ok(()) }
+    }
+    struct Pending;
+    impl RpcDispatcher for Pending {
+        fn dispatch(&self, _: Id, _: RpcRequest) -> RpcDispatch {
+            Box::pin(std::future::pending())
+        }
+    }
+    struct WakeCounter(AtomicUsize);
+    impl std::task::Wake for WakeCounter {
+        fn wake(self: Arc<Self>) { self.0.fetch_add(1, Ordering::SeqCst); }
+        fn wake_by_ref(self: &Arc<Self>) { self.0.fetch_add(1, Ordering::SeqCst); }
+    }
+    let scope = RpcAuthorityScope::default();
+    let permit = scope.permit();
+    let dispatcher = AuthorizedRpcDispatcher::new(Arc::new(Pending),
+        Arc::new(ScopedRpcAuthorizer::new(permit.clone(), Arc::new(Policy))));
+    let mut requests: Vec<_> = (0..3).map(|_| {
+        let counter = Arc::new(WakeCounter(AtomicUsize::new(0)));
+        let waker = std::task::Waker::from(counter.clone());
+        let mut task = dispatcher.dispatch(Id::new(), request(Id::new()));
+        assert!(task.as_mut().poll(&mut Context::from_waker(&waker)).is_pending());
+        (task, counter, waker)
+    }).collect();
+    requests.pop();
+    scope.retire();
+    for (mut task, counter, waker) in requests {
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        assert!(matches!(task.as_mut().poll(&mut Context::from_waker(&waker)),
+            Poll::Ready(Ok(RpcReply { result: Err(RpcError::Unauthenticated), .. }))));
+    }
+    let mut late = Box::pin(permit.revoked());
+    assert!(poll(late.as_mut()).is_ready());
+}
+
+#[test]
+fn scoped_authority_rejects_queued_requests_without_encryption() {
+    use flux::rpc_protocol::{AuthorizedRpcDispatcher, RpcAuthorityScope, RpcAuthorizer,
+        RpcDispatcher, RpcDispatch, ScopedRpcAuthorizer};
+    struct Policy(Id);
+    impl RpcAuthorizer for Policy {
+        fn authorize(&self, peer: Id, operation: &str) -> Result<(), RpcError> {
+            if peer == self.0 && operation == Echo::OPERATION { Ok(()) }
+            else { Err(RpcError::Forbidden) }
+        }
+    }
+    struct Dispatch(Arc<AtomicUsize>);
+    impl RpcDispatcher for Dispatch {
+        fn dispatch(&self, _: Id, request: RpcRequest) -> RpcDispatch {
+            let calls = self.0.clone();
+            Box::pin(async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(RpcReply { version: RPC_VERSION, request_id: request.request_id, result: Ok(vec![]) })
+            })
+        }
+    }
+    let peer = Id::new();
+    let scope = RpcAuthorityScope::default();
+    let permit = scope.permit();
+    let policy = Arc::new(ScopedRpcAuthorizer::new(permit.clone(), Arc::new(Policy(peer))));
+    assert_eq!(policy.authorize(Id::new(), Echo::OPERATION), Err(RpcError::Forbidden));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let dispatcher = AuthorizedRpcDispatcher::new(Arc::new(Dispatch(calls.clone())), policy);
+    let mut successful = Box::pin(dispatcher.dispatch(peer, request(Id::new())));
+    assert!(matches!(poll(successful.as_mut()), Poll::Ready(Ok(RpcReply { result: Ok(_), .. }))));
+    let mut queued = Box::pin(dispatcher.dispatch(peer, request(Id::new())));
+    scope.retire();
+    assert!(matches!(poll(queued.as_mut()), Poll::Ready(Ok(RpcReply { result: Err(RpcError::Unauthenticated), .. }))));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(permit.check(), Err(RpcError::Unauthenticated));
+    let replacement = RpcAuthorityScope::default();
+    let current = replacement.permit();
+    assert!(current.check().is_ok());
+    assert!(permit.check().is_err());
+    drop(replacement);
+    assert!(current.check().is_err());
+}
+
+#[test]
+fn scoped_authority_rechecks_pending_work_and_completed_replies() {
+    use flux::rpc_protocol::{AuthorizedRpcDispatcher, RpcAuthorityScope, RpcAuthorizer,
+        RpcDispatcher, RpcDispatch, ScopedRpcAuthorizer};
+    struct Policy;
+    impl RpcAuthorizer for Policy {
+        fn authorize(&self, _: Id, _: &str) -> Result<(), RpcError> { Ok(()) }
+    }
+    struct Dispatch {
+        scope: Arc<RpcAuthorityScope>,
+        polls: Arc<AtomicUsize>,
+    }
+    impl RpcDispatcher for Dispatch {
+        fn dispatch(&self, _: Id, request: RpcRequest) -> RpcDispatch {
+            let scope = self.scope.clone();
+            let polls = self.polls.clone();
+            Box::pin(std::future::poll_fn(move |_| {
+                if polls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    Poll::Pending
+                } else {
+                    scope.retire();
+                    Poll::Ready(Ok(RpcReply {
+                        version: RPC_VERSION, request_id: request.request_id, result: Ok(vec![1]),
+                    }))
+                }
+            }))
+        }
+    }
+    for retire_while_pending in [true, false] {
+        let scope = Arc::new(RpcAuthorityScope::default());
+        let polls = Arc::new(AtomicUsize::new(0));
+        let dispatcher = AuthorizedRpcDispatcher::new(
+            Arc::new(Dispatch { scope: scope.clone(), polls: polls.clone() }),
+            Arc::new(ScopedRpcAuthorizer::new(scope.permit(), Arc::new(Policy))),
+        );
+        let mut task = Box::pin(dispatcher.dispatch(Id::new(), request(Id::new())));
+        assert!(poll(task.as_mut()).is_pending());
+        if retire_while_pending { scope.retire(); }
+        assert!(matches!(poll(task.as_mut()), Poll::Ready(Ok(RpcReply {
+            result: Err(RpcError::Unauthenticated), ..
+        }))));
+        assert_eq!(polls.load(Ordering::SeqCst), if retire_while_pending { 1 } else { 2 });
+    }
 }
 
 #[test]

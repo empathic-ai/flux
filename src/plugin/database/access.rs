@@ -108,13 +108,25 @@ impl RecordPolicies {
 
 /// Never populate this map from a client-supplied record or network event.
 #[derive(Resource, Default, Clone)]
-pub struct AuthenticatedRecordPeers(Arc<RwLock<HashMap<Id, Id>>>);
+pub struct AuthenticatedRecordPeers(Arc<RwLock<HashMap<Id, (Id, Id, Option<String>)>>>);
 impl AuthenticatedRecordPeers {
     pub fn bind(&self, peer: Id, user: Id) {
         self.0
             .write()
             .expect("principal lock poisoned")
-            .insert(peer, user);
+            .insert(peer, (user, Id::new(), None));
+    }
+
+    /// Repeated requests using the same credential digest retain their generation.
+    /// Pass a digest or opaque session identifier here, never a bearer credential.
+    pub fn bind_session(&self, peer: Id, user: Id, credential_digest: &str) {
+        let mut peers = self.0.write().expect("principal lock poisoned");
+        if peers.get(&peer).is_some_and(|(principal, _, digest)| {
+            *principal == user && digest.as_deref() == Some(credential_digest)
+        }) {
+            return;
+        }
+        peers.insert(peer, (user, Id::new(), Some(credential_digest.to_owned())));
     }
     pub fn remove(&self, peer: Id) {
         self.0
@@ -123,11 +135,16 @@ impl AuthenticatedRecordPeers {
             .remove(&peer);
     }
     pub fn principal(&self, peer: Id) -> Option<Id> {
+        self.snapshot(peer).map(|(principal, _)| principal)
+    }
+
+    /// Capture both identity and authentication generation for delayed work.
+    pub fn snapshot(&self, peer: Id) -> Option<(Id, Id)> {
         self.0
             .read()
             .expect("principal lock poisoned")
             .get(&peer)
-            .copied()
+            .map(|(principal, generation, _)| (*principal, *generation))
     }
     /// Select recipients for policies that need only an ID. Record-specific policies
     /// fail closed here; use `authorized_readers` with the actual record instead.
@@ -139,7 +156,7 @@ impl AuthenticatedRecordPeers {
             .read()
             .expect("principal lock poisoned")
             .iter()
-            .filter_map(|(peer, user)| policy.can_read(record_id, Some(*user)).then_some(*peer))
+            .filter_map(|(peer, (user, _, _))| policy.can_read(record_id, Some(*user)).then_some(*peer))
             .collect()
     }
 
@@ -147,7 +164,7 @@ impl AuthenticatedRecordPeers {
         &self, policies: &RecordPolicies, record_id: Id, record: &T,
     ) -> Vec<Id> {
         self.0.read().expect("principal lock poisoned").iter()
-            .filter_map(|(peer, principal)| {
+            .filter_map(|(peer, (principal, _, _))| {
                 policies.can_read_record(record_id, Some(*principal), record).then_some(*peer)
             })
             .collect()

@@ -21,9 +21,35 @@ impl RecordFieldMove {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct RecordUniqueField {
+    table: fn() -> Result<String>,
+    field: &'static str,
+    index: &'static str,
+}
+
+impl RecordUniqueField {
+    pub fn new<Record: FluxRecord>(field: &'static str, index: &'static str) -> Self {
+        Self {
+            table: || crate::schema::database::record_table::<Record>(Record::short_type_path()),
+            field,
+            index,
+        }
+    }
+}
+
+fn unique_field_sql(operation: RecordUniqueField) -> Result<String> {
+    let table = (operation.table)()?;
+    let table = checked_identifier(&table)?;
+    let field = checked_identifier(operation.field)?;
+    let index = checked_identifier(operation.index)?;
+    Ok(format!("DEFINE INDEX `{index}` ON TABLE `{table}` FIELDS `{field}` UNIQUE;"))
+}
+
+#[derive(Clone, Copy, Debug)]
 pub enum MigrationStep {
     MoveRecordField(RecordFieldMove),
     MergeRecordField(RecordFieldMove),
+    UniqueRecordField(RecordUniqueField),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -38,6 +64,7 @@ impl Migration {
         let definition = match self.step {
             MigrationStep::MoveRecordField(operation) => field_move_sql(operation)?,
             MigrationStep::MergeRecordField(operation) => field_merge_sql(operation)?,
+            MigrationStep::UniqueRecordField(operation) => unique_field_sql(operation)?,
         };
         Ok(crate::schema::database::LegacyEntry { migration_id: self.id.into(), definition })
     }
@@ -101,6 +128,7 @@ pub async fn run_migrations_on(db: &Surreal<Any>, migrations: &[Migration]) -> R
         definitions.push(match migration.step {
             MigrationStep::MoveRecordField(operation) => field_move_sql(operation)?,
             MigrationStep::MergeRecordField(operation) => field_merge_sql(operation)?,
+            MigrationStep::UniqueRecordField(operation) => unique_field_sql(operation)?,
         });
     }
     let mut sql = String::from("BEGIN TRANSACTION;

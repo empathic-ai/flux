@@ -4,10 +4,8 @@ use crate::schema::wire::ServiceContractSet;
 use bevy::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{collections::HashMap, future::Future, pin::Pin, sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}}, time::Duration};
-
-pub const RPC_VERSION: u16 = 1;
-pub const RPC_MAX_PAYLOAD: usize = 64 * 1024;
-pub const RPC_MAX_TIMEOUT_MS: u32 = 30_000;
+pub use crate::rpc_peer::PeerRpc;
+pub use crate::rpc_protocol::{PeerRpcFrame, RpcConnectionAdapter, RpcDispatch, RpcDispatcher, RpcRequest, RpcReply, RpcError, RPC_VERSION, RPC_MAX_PAYLOAD, RPC_MAX_TIMEOUT_MS};
 
 pub trait WireRequest: ServiceRequest + Serialize + DeserializeOwned {
     const OPERATION: &'static str;
@@ -30,42 +28,21 @@ impl<Request: WireRequest, Call: Serialize + DeserializeOwned + Send + 'static, 
     const OPERATION: &'static str = Request::OPERATION;
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RpcRequest {
-    pub version: u16,
-    pub request_id: Id,
-    pub operation: String,
-    pub timeout_ms: u32,
-    pub payload: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum RpcError {
-    UnsupportedVersion,
-    UnknownOperation,
-    InvalidPayload,
-    Overloaded,
-    DeadlineExceeded,
-    Cancelled,
-    Disconnected,
-    HandlerFailed,
-    InvalidReply,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RpcReply {
-    pub version: u16,
-    pub request_id: Id,
-    pub result: Result<Vec<u8>, RpcError>,
-}
-
 pub type RpcTimer = fn(Duration) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 
 pub trait RpcTransport: Send + Sync + 'static {
     fn exchange(&self, request: RpcRequest) -> TaskResult<RpcReply, RpcError>;
     fn cancel(&self, request_id: Id);
+}
+
+impl RpcTransport for PeerRpc {
+    fn exchange(&self, request: RpcRequest) -> TaskResult<RpcReply, RpcError> {
+        TaskResult::new(PeerRpc::exchange(self, request))
+    }
+
+    fn cancel(&self, request_id: Id) {
+        PeerRpc::cancel(self, request_id);
+    }
 }
 
 #[derive(Clone)]
@@ -258,6 +235,14 @@ impl RpcServer {
 type WireHandler = Arc<dyn Fn(ServiceRegistry, Executor, RequestContext, Vec<u8>)
     -> TaskResult<Vec<u8>, RpcError> + Send + Sync>;
 
+impl RpcDispatcher for RpcServer {
+    fn disconnect(&self, connection: Id) { RpcServer::disconnect(self, connection); }
+
+    fn dispatch(&self, authenticated_peer: Id, request: RpcRequest) -> RpcDispatch {
+        Box::pin(RpcServer::dispatch(self, authenticated_peer, request))
+    }
+}
+
 #[derive(Resource, Clone, Default)]
 pub struct WireServiceRegistry {
     handlers: HashMap<String, WireHandler>,
@@ -287,27 +272,14 @@ impl WireServiceRegistry {
         self.handlers.insert(operation, Arc::new(move |registry, executor, context, payload| {
             let contracts = contracts.clone();
             TaskResult::new(async move {
-                let mut decoder = serde_json::Deserializer::from_slice(&payload);
-                let value = crate::schema::wire::unique_value(&mut decoder).map_err(|_| RpcError::InvalidPayload)?;
-                decoder.end().map_err(|_| RpcError::InvalidPayload)?;
-                let envelope: ContractRequest<Request, Contracts::Call, Contracts::Reply> = serde_json::from_value(value).map_err(|_| RpcError::InvalidPayload)?;
-                let value = contracts.decode_request(&envelope.call).map_err(|_| RpcError::InvalidPayload)?;
-                let request = serde_json::from_value::<Request>(value).map_err(|_| RpcError::InvalidPayload)?;
+                let (call, request) = crate::rpc_protocol::decode_service_request::<Request, Contracts>(&contracts, &payload)?;
                 let result = match registry.call(executor, context, request).await {
-                    Ok(response) => {
-                        let value = serde_json::to_value(response).map_err(|_| RpcError::HandlerFailed)?;
-                        Ok(contracts.encode_response(&envelope.call, value).map_err(|_| RpcError::HandlerFailed)?)
-                    }
-                    Err(CallError::Application(error)) => {
-                        let value = serde_json::to_value(error).map_err(|_| RpcError::HandlerFailed)?;
-                        Err(contracts.encode_error(&envelope.call, value).map_err(|_| RpcError::HandlerFailed)?)
-                    }
+                    Ok(response) => Ok(response),
+                    Err(CallError::Application(error)) => Err(error),
                     Err(CallError::Unregistered) => return Err(RpcError::UnknownOperation),
                     Err(_) => return Err(RpcError::HandlerFailed),
                 };
-                let payload = serde_json::to_vec(&result).map_err(|_| RpcError::HandlerFailed)?;
-                if payload.len() > RPC_MAX_PAYLOAD { return Err(RpcError::InvalidPayload); }
-                Ok(payload)
+                crate::rpc_protocol::encode_service_reply::<_, _, Contracts>(&contracts, &call, result)
             })
         }));
         Ok(())
@@ -343,10 +315,8 @@ impl WireServiceRegistry {
     ) -> TaskResult<RpcReply, RpcError> {
         let handler = self.handlers.get(&request.operation).cloned();
         TaskResult::new(async move {
-            let result = if request.version != RPC_VERSION {
-                Err(RpcError::UnsupportedVersion)
-            } else if request.payload.len() > RPC_MAX_PAYLOAD || request.timeout_ms == 0 || request.timeout_ms > RPC_MAX_TIMEOUT_MS {
-                Err(RpcError::InvalidPayload)
+            let result = if let Err(error) = request.validate() {
+                Err(error)
             } else if let Some(handler) = handler {
                 let task = Box::pin(handler(registry, executor, RequestContext {
                     peer_id: authenticated_peer, request_id: request.request_id,

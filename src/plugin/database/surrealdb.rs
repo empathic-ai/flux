@@ -40,6 +40,24 @@ pub struct Database {
     connection: Arc<Surreal<Any>>,
 }
 
+#[derive(Default)]
+pub struct RecordCreateBatch {
+    records: Vec<(String, String, surrealdb::types::Value)>,
+}
+
+impl RecordCreateBatch {
+    pub fn push<T: FluxRecord>(&mut self, id: Id, record: T) -> anyhow::Result<()> {
+        anyhow::ensure!(id != Id::nil(), "Missing record identity");
+        anyhow::ensure!(self.records.len() < 64, "Record creation batch exceeds limit");
+        self.records.push((
+            crate::schema::database::record_table::<T>(T::short_type_path())?,
+            id.to_pretty_string(),
+            surrealdb::types::SerdeWrapper(record).into_value(),
+        ));
+        Ok(())
+    }
+}
+
 #[derive(Resource, Clone)]
 pub struct DatabasePreparation(
     pub fn(Database) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>,
@@ -83,6 +101,59 @@ impl DBConfig {
 }
 
 impl Database {
+    /// Consume one shared fixed-window allowance using database time and an atomic update.
+    pub async fn consume_rate_limit(&self, bucket: &str, limit: u32, window_seconds: u32) -> anyhow::Result<bool> {
+        use sha2::{Digest, Sha256};
+        anyhow::ensure!(!bucket.is_empty() && bucket.len() <= 256, "Invalid rate-limit bucket");
+        anyhow::ensure!(limit > 0 && (1..=86_400).contains(&window_seconds), "Invalid rate-limit policy");
+        let key = format!("{:x}", Sha256::digest(bucket.as_bytes()));
+        let mut response = self.connection.query(
+            "DEFINE TABLE IF NOT EXISTS _flux_rate_limits SCHEMALESS PERMISSIONS NONE;
+             ALTER TABLE _flux_rate_limits PERMISSIONS NONE;
+             RETURN {
+                 LET $now = time::unix(time::now());
+                 LET $expired = SELECT VALUE id FROM _flux_rate_limits WHERE expires_at <= $now LIMIT 64;
+                 FOR $record IN $expired { DELETE $record WHERE expires_at <= $now; };
+                 LET $used = UPSERT type::record('_flux_rate_limits', $key)
+                     SET count = IF expires_at = NONE OR expires_at <= $now { 1 } ELSE { count + 1 },
+                         expires_at = IF expires_at = NONE OR expires_at <= $now { $now + $window } ELSE { expires_at }
+                     WHERE count = NONE OR expires_at <= $now OR count < $limit RETURN AFTER;
+                 RETURN array::len($used) = 1;
+             };"
+        ).bind(("key", key)).bind(("limit", i64::from(limit))).bind(("window", i64::from(window_seconds)))
+            .await?.check()?;
+        let allowed: Option<bool> = response.take(2)?;
+        Ok(allowed.unwrap_or(false))
+    }
+
+    /// Remove a bounded batch of expired ephemeral records, never other subjects.
+    pub async fn purge_expired_versioned_records(
+        &self, catalog: &crate::schema::Catalog, subject: &str, expiry_field: &str, now: u64, limit: u32,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!((1..=256).contains(&limit), "Invalid expiry batch size");
+        anyhow::ensure!(now <= i64::MAX as u64, "Invalid expiry timestamp");
+        let root = catalog.roots.values().find(|root| root.history.contracts[0].subject == subject)
+            .ok_or_else(|| anyhow::anyhow!("Unknown expiry subject"))?;
+        anyhow::ensure!(root.database, "Expiry requires a database root");
+        anyhow::ensure!(root.history.contracts.last().unwrap().fields.values().any(|field|
+            field.name == expiry_field && field.ty == crate::schema::ValueType::U64
+        ), "Expiry requires an unsigned timestamp field");
+        self.connection.query(
+            "DEFINE TABLE IF NOT EXISTS _flux_versioned_records SCHEMALESS PERMISSIONS NONE;
+             LET $expired = SELECT VALUE id FROM _flux_versioned_records
+                 WHERE payload.graph.root = $subject
+                     AND payload.value[$field] != NONE AND payload.value[$field] != NULL
+                     AND payload.value[$field] <= $now LIMIT $limit;
+             FOR $record IN $expired {
+                 DELETE $record WHERE payload.graph.root = $subject
+                     AND payload.value[$field] != NONE AND payload.value[$field] != NULL
+                     AND payload.value[$field] <= $now;
+             };"
+        ).bind(("subject", subject.to_owned())).bind(("field", expiry_field.to_owned()))
+            .bind(("now", now as i64)).bind(("limit", limit as i64)).await?.check()?;
+        Ok(())
+    }
+
     #[cfg(all(feature = "database_backup", not(target_arch = "wasm32")))]
     pub async fn export_backup(&self, destination: &std::path::Path) -> anyhow::Result<u64> {
         use futures::StreamExt;
@@ -166,6 +237,19 @@ impl Database {
         anyhow::ensure!(errors.is_empty(), "Record transaction failed: {}", errors.into_iter()
             .map(|(index, error)| format!("statement {index}: {error}"))
             .collect::<Vec<_>>().join("; "));
+        Ok(())
+    }
+
+    pub async fn create_record_batch(&self, batch: RecordCreateBatch) -> anyhow::Result<()> {
+        anyhow::ensure!(!batch.records.is_empty(), "Empty record creation batch");
+        let mut query = self.connection.query("BEGIN TRANSACTION;");
+        for (index, (table, key, content)) in batch.records.into_iter().enumerate() {
+            query = query.query(format!("CREATE type::record($table_{index}, $key_{index}) CONTENT $content_{index};"))
+                .bind((format!("table_{index}"), table))
+                .bind((format!("key_{index}"), key))
+                .bind((format!("content_{index}"), content));
+        }
+        query.query("COMMIT TRANSACTION;").await?.check()?;
         Ok(())
     }
 
@@ -304,8 +388,31 @@ pub fn start(
     Ok(())
 }
 
+static CLIENT_DATABASE_ADDRESS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn configure_local_database(path: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::ensure!(path.is_absolute(), "Local database path must be absolute");
+    let path = path.to_str().ok_or_else(|| anyhow!("Invalid local database path"))?;
+    let address = format!("surrealkv://{path}");
+    if let Some(current) = CLIENT_DATABASE_ADDRESS.get() {
+        anyhow::ensure!(current == &address, "Local database is already configured");
+        return Ok(());
+    }
+    CLIENT_DATABASE_ADDRESS.set(address).map_err(|_| anyhow!("Local database configuration raced"))
+}
+
 /// Connect to the configured SurrealDB
 pub async fn get_database() -> anyhow::Result<Surreal<Any>> {
+    #[cfg(all(feature = "client", not(feature = "server")))]
+    {
+        static CLIENT_DATABASE: std::sync::OnceLock<futures::lock::Mutex<Option<Surreal<Any>>>> = std::sync::OnceLock::new();
+        let mut connection = CLIENT_DATABASE.get_or_init(|| futures::lock::Mutex::new(None)).lock().await;
+        if let Some(database) = connection.as_ref() { return Ok(database.clone()); }
+        let database = connect_database(get_database_address()?).await?;
+        *connection = Some(database.clone());
+        return Ok(database);
+    }
+    #[cfg(not(all(feature = "client", not(feature = "server"))))]
     connect_database(get_database_address()?).await
 }
 
@@ -380,7 +487,7 @@ fn get_database_address() -> anyhow::Result<String> {
         return std::env::var("SURREAL_URL").map_err(|_| anyhow!("Set SURREAL_URL"));
     }
     if cfg!(feature = "client") {
-        return Ok("file://database.db".to_string());
+        return CLIENT_DATABASE_ADDRESS.get().cloned().ok_or_else(|| anyhow!("Configure the local application database before connecting"));
     }
     Err(anyhow!(
         "Enable the Flux server or client feature to configure a database URL"

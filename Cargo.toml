@@ -15,16 +15,20 @@ dynamic_linking = ["bevy?/dynamic_linking"]
 tonic = ["dep:tonic", "prost", "dep:tonic-build", "dep:prost-build"]
 prost = ["dep:prost", "prost-types"]
 tokio = ["common/tokio", "bevy-wasm-tasks"]
-futures = ["bevy-async-ecs", "dep:futures", "futures-util", "future_handles"]
+rpc = ["bevy_reflect", "dep:futures"]
+rpc_secure = ["rpc", "dep:snow"]
+futures = ["bevy-async-ecs", "rpc", "futures-util", "future_handles"]
 server = ["dioxus-cli-config", "http_server"] # "dioxus-fullstack/server"
 client = []
 surrealdb = ["dep:surrealdb", "castaway"]
+local_database = ["surrealdb", "surrealdb/kv-surrealkv"]
 database_backup = ["surrealdb", "surrealdb/protocol-http"]
 bevy_std = ["bevy", "common/bevy_std", "bevy/bevy_log"]
 http_server = ["axum"]
 subsecond = ["bevy_std", "bevy_simple_subsecond_system"]
 
 [dependencies]
+snow = { version = "0.10.0", default-features = false, features = ["default-resolver", "use-curve25519", "use-chacha20poly1305", "use-sha2", "use-getrandom"], optional = true }
 bevy_platform = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["alloc"], optional = true }
 bevy_reflect = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["uuid"], optional = true }
 bevy = { git = "https://github.com/empathic-ai/bevy.git", branch = "reflect/serializable-dynamic-types", default-features = false, features = ["serialize", "bevy_state", "bevy_color", "track_location"], optional = true }
